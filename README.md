@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TheraScheduler - Therapist Scheduling Platform
 
-## Getting Started
+A modern scheduling platform built for therapists to manage their appointments and client bookings efficiently.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- 🔐 Secure therapist authentication
+- 📅 Easy appointment scheduling
+- 🔄 Google Calendar integration
+- 📱 SMS & email notifications
+- ⚡ Real-time updates
+- 🎨 Modern, responsive UI
+
+## Tech Stack
+
+- **Frontend**: Next.js 14, React, TypeScript
+- **Styling**: Tailwind CSS, shadcn/ui
+- **Database**: Supabase (PostgreSQL)
+- **Authentication**: Firebase Auth
+- **State Management**: React Query
+- **Form Handling**: React Hook Form
+- **Notifications**: Twilio (SMS) & SendGrid (email)
+
+## Prerequisites
+
+- Node.js 18.x or later
+- npm 9.x or later
+- Supabase account
+- Firebase account
+- SendGrid account
+- Twilio account
+- Google Cloud Console account (for Calendar API)
+
+## Setup Instructions
+
+1. Clone the repository:
+
+   ```bash
+   git clone <repository-url>
+   cd therascheduler
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+3. Create a `.env.local` file in the root directory and add your environment variables:
+
+   ```
+   # Supabase Configuration
+   NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+   # Firebase Configuration
+   NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-firebase-auth-domain
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-firebase-project-id
+
+   # SendGrid Configuration
+   SENDGRID_API_KEY=your-sendgrid-api-key
+
+   # Twilio Configuration
+   TWILIO_ACCOUNT_SID=your-twilio-account-sid
+   TWILIO_AUTH_TOKEN=your-twilio-auth-token
+   TWILIO_PHONE_NUMBER=your-twilio-phone-number
+
+   # Google Calendar API
+   GOOGLE_CALENDAR_CLIENT_ID=your-google-client-id
+   GOOGLE_CALENDAR_CLIENT_SECRET=your-google-client-secret
+   ```
+
+4. Set up your database:
+
+   - Create a new project in Supabase
+   - Run the database schema provided in `docs/DOC.md`
+
+5. Run the development server:
+
+   ```bash
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Project Structure
+
+```
+therascheduler/
+├── app/
+│   ├── components/  # Reusable UI components
+│   ├── hooks/      # Custom React hooks
+│   ├── utils/      # Utility functions
+│   ├── api/        # API endpoints
+│   ├── types/      # TypeScript types
+│   └── ...         # Next.js app router pages
+├── public/         # Static assets
+├── docs/          # Documentation
+└── ...            # Config files
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Development Workflow
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Create a new branch for your feature
+2. Make your changes
+3. Submit a pull request
+4. Wait for review and approval
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## License
 
-## Learn More
+[MIT License](LICENSE)
 
-To learn more about Next.js, take a look at the following resources:
+## Support
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For support, email support@therascheduler.com or open an issue in the repository.
