@@ -124,3 +124,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Add this rule to ensure all buttons show a pointer cursor on hover */
+button, 
+[role="button"],
+.button,
+a[href],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+select,
+summary {
+  cursor: pointer;
+}

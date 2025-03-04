@@ -21,11 +21,14 @@ export default function DashboardLayout({
   return (
     <ProtectedRoute>
       <div className="min-h-screen flex flex-col">
-        <header className="border-b">
+        <header className="border-b bg-primary/5">
           <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/dashboard" className="text-xl font-bold">
-              TheraScheduler
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/dashboard" className="text-xl font-bold">
+                TheraScheduler
+              </Link>
+              <span className="bg-primary/10 text-primary text-xs px-2 py-1 rounded">Therapist Portal</span>
+            </div>
             <nav className="flex items-center gap-6">
               <Link href="/dashboard" className={isActive('/dashboard')}>
                 Dashboard
@@ -39,9 +42,14 @@ export default function DashboardLayout({
               <Link href="/dashboard/profile" className={isActive('/dashboard/profile')}>
                 Profile
               </Link>
-              <Button variant="outline" onClick={() => signOut()}>
-                Sign Out
-              </Button>
+              <div className="flex items-center gap-2">
+                <Link href="/" className="text-sm text-gray-600 hover:text-primary">
+                  View Public Site
+                </Link>
+                <Button variant="outline" onClick={() => signOut()}>
+                  Sign Out
+                </Button>
+              </div>
             </nav>
           </div>
         </header>

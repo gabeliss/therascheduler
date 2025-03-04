@@ -10,13 +10,12 @@ export async function POST(request: Request) {
     }
 
     const { error } = await supabaseAdmin
-      .from('therapists')
+      .from('therapist_profiles')
       .insert([
         {
-          id: userId,
+          user_id: userId,
           email: email,
           name: name,
-          available_hours: {},
         }
       ])
       .select()
