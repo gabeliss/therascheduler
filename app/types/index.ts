@@ -71,4 +71,33 @@ export interface ClientProfile {
   email: string;
   phone?: string;
   created_at: string;
+}
+
+// New hierarchical availability model
+export interface BaseAvailability {
+  id: string;
+  therapist_id: string;
+  day_of_week: number; // 0 = Sunday, 6 = Saturday
+  start_time: string;
+  end_time: string;
+  is_recurring: boolean;
+  specific_date?: string; // Format: YYYY-MM-DD
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AvailabilityException {
+  id: string;
+  base_availability_id: string;
+  start_time: string;
+  end_time: string;
+  reason?: string; // Reason for the exception (e.g., "Lunch", "Dentist appointment")
+  created_at: string;
+  updated_at: string;
+}
+
+// Combined type for UI representation
+export interface HierarchicalAvailability {
+  base: BaseAvailability;
+  exceptions: AvailabilityException[];
 } 
