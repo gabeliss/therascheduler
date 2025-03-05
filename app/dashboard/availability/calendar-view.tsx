@@ -6,6 +6,7 @@ import { HierarchicalAvailability, AvailabilityException } from '@/app/types';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatTime as formatTimeUtil } from './utils/time-utils';
 
 // Custom tooltip components
 interface TooltipProps {
@@ -65,13 +66,9 @@ export default function CalendarView({ hierarchicalAvailability }: CalendarViewP
     setCurrentDate(new Date());
   };
 
-  // Format time for display
+  // Use the shared formatTime function instead of defining a local one
   const formatTime = (time: string) => {
-    const [hours, minutes] = time.split(':');
-    const date = new Date();
-    date.setHours(parseInt(hours));
-    date.setMinutes(parseInt(minutes));
-    return format(date, 'h:mm a');
+    return formatTimeUtil(time);
   };
 
   // Generate time slots for the day (7am to 8pm in 30-minute increments)
