@@ -40,7 +40,9 @@ export interface Availability {
   start_time: string;
   end_time: string;
   is_recurring: boolean;
+  is_available: boolean; // true = available for appointments, false = blocked off
   specific_date?: string; // Format: YYYY-MM-DD
+  reason?: string; // Optional reason for blocked time slots
   created_at: string;
   updated_at: string;
 }

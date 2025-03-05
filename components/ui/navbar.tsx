@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useAuth } from '@/app/context/auth-context';
 import { ChevronDown, Menu, Calendar } from 'lucide-react';
 import { useState } from 'react';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 
 export function Navbar() {
   const { user, loading, signOut } = useAuth();
@@ -45,7 +45,7 @@ export function Navbar() {
         </div>
         <div className="flex items-center gap-4">
           {user ? (
-            <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-4">
               <Link href="/dashboard">
                 <Button variant="default" size="sm" className="bg-gray-600 hover:bg-gray-500 text-white">
                   Dashboard
@@ -65,7 +65,7 @@ export function Navbar() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-2">
               <DropdownMenu open={open} onOpenChange={setOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="flex items-center gap-1">
@@ -90,6 +90,7 @@ export function Navbar() {
               </Button>
             </SheetTrigger>
             <SheetContent side="left">
+              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <Link href="/" className="flex items-center gap-2 mb-8">
                 <Calendar className="h-5 w-5" />
                 <span className="font-bold">TheraScheduler</span>
@@ -124,6 +125,15 @@ export function Navbar() {
                       <Button variant="outline" size="sm" className="w-full justify-start">
                         Dashboard
                       </Button>
+                    </Link>
+                    <Link href="/dashboard/appointments" className="text-sm font-medium transition-colors hover:text-primary">
+                      Appointments
+                    </Link>
+                    <Link href="/dashboard/availability" className="text-sm font-medium transition-colors hover:text-primary">
+                      Availability
+                    </Link>
+                    <Link href="/dashboard/embed" className="text-sm font-medium transition-colors hover:text-primary">
+                      Embed Widget
                     </Link>
                     <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => signOut()}>
                       Sign Out
