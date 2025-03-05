@@ -57,8 +57,18 @@ export default function DashboardLayout({
           {children}
         </main>
         <footer className="border-t">
-          <div className="container mx-auto px-4 py-4 text-center text-sm text-gray-500">
-            © {new Date().getFullYear()} TheraScheduler. All rights reserved.
+          <div className="container mx-auto px-4 py-4">
+            <div className="flex flex-col md:flex-row justify-between items-center">
+              <div className="text-sm text-gray-500 mb-4 md:mb-0">
+                © {new Date().getFullYear()} TheraScheduler. All rights reserved.
+              </div>
+              <div className="flex space-x-6">
+                <Link href="/about" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">About</Link>
+                <Link href="/contact" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">Contact</Link>
+                <Link href="/privacy" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">Privacy</Link>
+                <Link href="/terms" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">Terms</Link>
+              </div>
+            </div>
           </div>
         </footer>
       </div>

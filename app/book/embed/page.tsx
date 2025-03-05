@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { format, addMinutes, parse } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,10 +11,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/app/utils/supabase';
 import { Loader2, Calendar as CalendarIcon, Clock } from 'lucide-react';
-import { useAuth } from '@/app/context/auth-context';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
+// Same interfaces as the main booking page
 interface AvailableSlot {
   id: string;
   therapist_id: string;
@@ -37,9 +37,7 @@ interface BookingFormData {
   createAccount: boolean;
 }
 
-export default function BookAppointmentPage() {
-  const { user } = useAuth();
-  const router = useRouter();
+export default function EmbeddedBookingPage() {
   const searchParams = useSearchParams();
   const therapistId = searchParams.get('therapist');
   
@@ -92,18 +90,6 @@ export default function BookAppointmentPage() {
 
     fetchTherapistInfo();
   }, [therapistId]);
-
-  // Pre-fill form data if user is logged in
-  useEffect(() => {
-    if (user) {
-      const userName = user.user_metadata?.name || '';
-      setFormData(prev => ({
-        ...prev,
-        name: userName,
-        email: user.email || '',
-      }));
-    }
-  }, [user]);
 
   // Fetch available slots when date or therapist changes
   useEffect(() => {
@@ -284,7 +270,7 @@ export default function BookAppointmentPage() {
 
   if (therapistLoading) {
     return (
-      <div className="container mx-auto py-8 px-4 flex justify-center items-center min-h-[60vh]">
+      <div className="flex justify-center items-center min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -292,8 +278,8 @@ export default function BookAppointmentPage() {
 
   if (error && !therapist) {
     return (
-      <div className="container mx-auto py-8 px-4">
-        <Alert variant="destructive" className="max-w-md mx-auto">
+      <div className="p-4">
+        <Alert variant="destructive">
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -301,12 +287,12 @@ export default function BookAppointmentPage() {
     );
   }
 
+  // Embedded version has a more compact layout
   return (
-    <div className="container mx-auto py-8 px-4">
+    <div className="p-4">
       {therapist && (
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-2xl font-bold mb-2">Book an Appointment with {therapist.name}</h1>
-          <p className="text-gray-600 mb-6">Select a date and time for your appointment</p>
+        <div>
+          <h1 className="text-xl font-bold mb-2">Book with {therapist.name}</h1>
           
           {success ? (
             <Card>
@@ -325,14 +311,13 @@ export default function BookAppointmentPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="md:col-span-1">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="md:col-span-2">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CalendarIcon className="h-5 w-5" /> Select a Date
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <CalendarIcon className="h-4 w-4" /> Select a Date
                     </CardTitle>
-                    <CardDescription>Choose a date for your appointment</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Calendar
@@ -346,20 +331,20 @@ export default function BookAppointmentPage() {
                 </Card>
               </div>
               
-              <div className="md:col-span-2">
+              <div className="md:col-span-3">
                 <Card className="h-full">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Clock className="h-5 w-5" /> Available Time Slots
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Clock className="h-4 w-4" /> Available Times
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-xs">
                       {date ? format(date, 'EEEE, MMMM do, yyyy') : 'Please select a date'}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     {loading ? (
-                      <div className="flex justify-center py-8">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
                       </div>
                     ) : timeSlots.length > 0 ? (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -367,7 +352,7 @@ export default function BookAppointmentPage() {
                           <Button
                             key={index}
                             variant={selectedTime === slot.time ? "default" : "outline"}
-                            className="w-full"
+                            className="w-full text-sm py-1 h-auto"
                             onClick={() => handleTimeSelect(slot.time)}
                           >
                             {slot.formatted}
@@ -375,13 +360,13 @@ export default function BookAppointmentPage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        No available slots for this date. Please select another date.
+                      <div className="text-center py-4 text-gray-500 text-sm">
+                        No available slots for this date.
                       </div>
                     )}
                     
                     {error && (
-                      <div className="mt-4 text-red-500 text-sm">
+                      <div className="mt-4 text-red-500 text-xs">
                         {error}
                       </div>
                     )}
@@ -390,28 +375,31 @@ export default function BookAppointmentPage() {
               </div>
               
               {selectedTime && (
-                <div className="md:col-span-3">
+                <div className="md:col-span-5">
                   <Card>
-                    <CardHeader>
-                      <CardTitle>Your Information</CardTitle>
-                      <CardDescription>Please provide your details to book the appointment</CardDescription>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Your Information</CardTitle>
+                      <CardDescription className="text-xs">
+                        Please provide your details to book the appointment
+                      </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="name">Full Name</Label>
+                      <form onSubmit={handleSubmit} className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label htmlFor="name" className="text-sm">Full Name</Label>
                             <Input
                               id="name"
                               name="name"
                               value={formData.name}
                               onChange={handleInputChange}
                               required
+                              className="h-8 text-sm"
                             />
                           </div>
                           
-                          <div className="space-y-2">
-                            <Label htmlFor="email">Email</Label>
+                          <div className="space-y-1">
+                            <Label htmlFor="email" className="text-sm">Email</Label>
                             <Input
                               id="email"
                               name="email"
@@ -419,29 +407,32 @@ export default function BookAppointmentPage() {
                               value={formData.email}
                               onChange={handleInputChange}
                               required
+                              className="h-8 text-sm"
                             />
                           </div>
                           
-                          <div className="space-y-2">
-                            <Label htmlFor="phone">Phone Number</Label>
+                          <div className="space-y-1">
+                            <Label htmlFor="phone" className="text-sm">Phone Number</Label>
                             <Input
                               id="phone"
                               name="phone"
                               value={formData.phone}
                               onChange={handleInputChange}
+                              className="h-8 text-sm"
                             />
                           </div>
                         </div>
                         
-                        <div className="space-y-2">
-                          <Label htmlFor="notes">Notes (Optional)</Label>
+                        <div className="space-y-1">
+                          <Label htmlFor="notes" className="text-sm">Notes (Optional)</Label>
                           <Textarea
                             id="notes"
                             name="notes"
                             placeholder="Any specific concerns or questions?"
                             value={formData.notes}
                             onChange={handleInputChange}
-                            rows={3}
+                            rows={2}
+                            className="text-sm"
                           />
                         </div>
                         
@@ -451,7 +442,7 @@ export default function BookAppointmentPage() {
                             checked={formData.createAccount}
                             onCheckedChange={handleCheckboxChange}
                           />
-                          <Label htmlFor="createAccount" className="text-sm font-normal">
+                          <Label htmlFor="createAccount" className="text-xs font-normal">
                             Create an account for faster booking in the future
                           </Label>
                         </div>
@@ -477,4 +468,4 @@ export default function BookAppointmentPage() {
       )}
     </div>
   );
-}
+} 

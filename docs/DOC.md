@@ -19,17 +19,21 @@ This document outlines the MVP requirements, tech stack, directory structure, an
 - **Google Calendar integration** for approved appointments
 - Automated **email & SMS notifications** (SendGrid & Twilio)
 - **Basic UI with Tailwind CSS & ShadCN**
+- **Embeddable booking widget** for therapists' websites
 
 ### **Phase 2: Pilot & Feedback (Weeks 3-4)**
 
 - Onboard **5-10 therapists** for beta testing.
 - Gather feedback and refine core features.
+- Enhance the **embedded booking widget** with customization options.
+- Implement **analytics** to track booking conversion rates.
 
 ### **Phase 3: Expansion & Monetization (Weeks 5-6)**
 
 - Introduce **subscription pricing ($30-$100/month per therapist)**
 - Optimize UX & add improvements based on user feedback.
 - Expand outreach via marketing and direct therapist contacts.
+- Add **advanced widget customization** for premium subscribers.
 
 ---
 
@@ -83,6 +87,7 @@ therapist-scheduling-platform/
 │   │   ├── booking.ts  # Appointment handling logic
 │   │   ├── notifications.ts  # Email/SMS notifications
 │   │   ├── calendar.ts  # Google Calendar integration
+│   │   ├── embed.ts  # Embeddable widget code
 │   ├── db/
 │   │   ├── schema.sql  # Database schema (PostgreSQL)
 │   ├── package.json
@@ -150,6 +155,50 @@ POST /api/appointments/cancel  →  Cancel appointment
 POST /api/calendar/sync  →  Sync approved appointments
 ```
 
+### **Embeddable Widget**
+
+```http
+GET /api/embed  →  Get embeddable widget script
+```
+
+---
+
+## **Embeddable Booking Widget**
+
+The platform provides an embeddable booking widget that therapists can add to their own websites, allowing clients to book appointments directly without leaving the therapist's site.
+
+### **How It Works**
+
+1. **Therapist Setup**:
+
+   - Therapist configures their availability in the dashboard
+   - System generates a unique embed code for the therapist
+   - Therapist adds the embed code to their website
+
+2. **Client Experience**:
+
+   - Client visits the therapist's website
+   - Client clicks "Book Appointment" button
+   - Booking widget opens as a modal on the therapist's site
+   - Client selects date, time, and provides their information
+   - Appointment request is sent to the therapist for approval
+
+3. **Technical Implementation**:
+   - JavaScript embed code loads from our server
+   - Creates a modal/popup with an iframe containing the booking interface
+   - Communicates with our backend API to handle the booking process
+   - Responsive design works on mobile and desktop
+
+### **Embed Code Example**
+
+```html
+<!-- Add this to your website where you want the "Book Appointment" button to appear -->
+<button data-therascheduler-booking>Book an Appointment</button>
+
+<!-- Add this script to the bottom of your page before the closing </body> tag -->
+<script src="https://therascheduler.com/api/embed?therapistId=YOUR_ID_HERE"></script>
+```
+
 ---
 
 ## **Next Steps for Cursor Agent**
@@ -161,7 +210,8 @@ POST /api/calendar/sync  →  Sync approved appointments
 3. **Build therapist dashboard & appointment booking system**.
 4. **Set up notifications (Twilio, SendGrid)**.
 5. **Integrate Google Calendar API**.
-6. **Deploy MVP to Vercel & Supabase**.
+6. **Implement embeddable booking widget**.
+7. **Deploy MVP to Vercel & Supabase**.
 
 ---
 
