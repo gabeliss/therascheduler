@@ -4,10 +4,20 @@ import Link from 'next/link';
 import { Button } from './button';
 import { useAuth } from '@/app/context/auth-context';
 import { usePathname } from 'next/navigation';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuSeparator, 
+  DropdownMenuTrigger 
+} from './dropdown-menu';
+import { ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 
 export function Navbar() {
   const { user, loading, signOut } = useAuth();
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
   
   // Check if we're in the dashboard section
   const isDashboard = pathname?.startsWith('/dashboard');
@@ -52,11 +62,39 @@ export function Navbar() {
               </Button>
             </div>
           ) : (
-            <Link href="/auth/login">
-              <Button variant="outline" size="sm">
-                Therapist Login
+            <div className="flex items-center gap-2">
+              <DropdownMenu open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="flex items-center gap-1">
+                    Log in <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <div className="p-2 font-medium">
+                    Clients
+                  </div>
+                  <DropdownMenuItem asChild onClick={() => setOpen(false)}>
+                    <Link href="/auth/client-login" className="cursor-pointer w-full">
+                      Log in
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <div className="p-2 font-medium">
+                    Therapists
+                  </div>
+                  <DropdownMenuItem asChild onClick={() => setOpen(false)}>
+                    <Link href="/auth/login" className="cursor-pointer w-full">
+                      Log in
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button asChild size="sm" className="bg-primary hover:bg-primary/90 text-white">
+                <Link href="/auth/signup">
+                  Sign up
+                </Link>
               </Button>
-            </Link>
+            </div>
           )}
         </div>
       </div>
