@@ -65,19 +65,22 @@ export function convertBaseToAPIFormat(data: {
   date?: string;
   startTime: string;
   endTime: string;
+  forceAdd?: boolean;
 }): {
   dayOfWeek: number;
   startTime: string;
   endTime: string;
   isRecurring: boolean;
   specificDate?: string;
+  forceAdd?: boolean;
 } {
   return {
     dayOfWeek: data.type === 'recurring' && data.day ? getDayNumber(data.day) : 0,
     startTime: data.startTime,
     endTime: data.endTime,
     isRecurring: data.type === 'recurring',
-    specificDate: data.type === 'specific' ? data.date : undefined
+    specificDate: data.type === 'specific' ? data.date : undefined,
+    forceAdd: data.forceAdd
   };
 }
 

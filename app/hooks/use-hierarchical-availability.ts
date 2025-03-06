@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/app/utils/supabase';
-import { BaseAvailability, AvailabilityException, HierarchicalAvailability, BaseAvailabilityInput, ExceptionInput } from '@/app/types';
+import { BaseAvailability, AvailabilityException, HierarchicalAvailability } from '@/app/types';
 
 export function useHierarchicalAvailability() {
   const [hierarchicalAvailability, setHierarchicalAvailability] = useState<HierarchicalAvailability[]>([]);
@@ -106,14 +106,16 @@ export function useHierarchicalAvailability() {
     endTime,
     isRecurring = true,
     specificDate,
+    forceAdd = false,
   }: {
     dayOfWeek: number;
     startTime: string;
     endTime: string;
     isRecurring?: boolean;
     specificDate?: string;
+    forceAdd?: boolean;
   }) {
-    console.log('addBaseAvailability called with:', { dayOfWeek, startTime, endTime, isRecurring, specificDate });
+    console.log('addBaseAvailability called with:', { dayOfWeek, startTime, endTime, isRecurring, specificDate, forceAdd });
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -130,18 +132,20 @@ export function useHierarchicalAvailability() {
         throw new Error('Therapist profile not found. Please complete your profile setup first.');
       }
 
-      // Check for overlapping base availability
-      const hasOverlap = await checkForOverlappingBaseAvailability(
-        therapistProfile.id,
-        dayOfWeek,
-        startTime,
-        endTime,
-        isRecurring,
-        specificDate
-      );
-
-      if (hasOverlap) {
-        throw new Error('This time slot overlaps with an existing availability. Please choose a different time or delete the existing slot first.');
+      // Check for overlapping time slots if forceAdd is false
+      if (!forceAdd) {
+        const hasOverlap = await checkForOverlappingBaseAvailability(
+          therapistProfile.id,
+          dayOfWeek,
+          startTime,
+          endTime,
+          isRecurring,
+          specificDate
+        );
+        
+        if (hasOverlap) {
+          throw new Error('This time slot overlaps with an existing availability. Please choose a different time or use the "Save Anyway" option to override.');
+        }
       }
 
       const baseAvailabilityData: any = {

@@ -15,6 +15,7 @@ import ExceptionDialog from './components/ExceptionDialog';
 import WeeklyView from './components/WeeklyView';
 import { HierarchicalAvailability as OriginalHierarchicalAvailability } from '@/app/types';
 import CalendarView from './calendar-view';
+import OverlapDialog from './components/OverlapDialog';
 
 export default function AvailabilityPage() {
   const { 
@@ -39,6 +40,26 @@ export default function AvailabilityPage() {
     baseEndTime: ''
   });
 
+  // New state for overlap dialog
+  const [overlapDialogState, setOverlapDialogState] = useState<{
+    isOpen: boolean;
+    day: string;
+    newSlot: { startTime: string; endTime: string };
+    existingSlot: { startTime: string; endTime: string };
+    mergedSlot: { startTime: string; endTime: string };
+    onMerge: () => Promise<void>;
+    onReplace: () => Promise<void>;
+    formData?: BaseAvailabilityFormValues;
+  }>({
+    isOpen: false,
+    day: '',
+    newSlot: { startTime: '', endTime: '' },
+    existingSlot: { startTime: '', endTime: '' },
+    mergedSlot: { startTime: '', endTime: '' },
+    onMerge: async () => {},
+    onReplace: async () => {},
+  });
+
   // Convert API data to UI format
   const uiFormattedAvailability: HierarchicalItem[] = hierarchicalAvailability.map(convertToUIFormat);
 
@@ -47,13 +68,8 @@ export default function AvailabilityPage() {
     const overlapDays: string[] = [];
     let hasOverlap = false;
 
-    // Skip overlap check for specific dates
-    if (formData.type === 'specific') {
-      return { hasOverlap, overlapDays };
-    }
-
     // Check for overlaps in recurring availability
-    if (formData.days && formData.days.length > 0) {
+    if (formData.type === 'recurring' && formData.days && formData.days.length > 0) {
       formData.days.forEach(day => {
         const dayAvailability = uiFormattedAvailability.filter(
           item => item.base.type === 'recurring' && item.base.day === day
@@ -73,48 +89,266 @@ export default function AvailabilityPage() {
           }
         });
       });
+    } 
+    // Check for overlaps in specific date availability
+    else if (formData.type === 'specific' && formData.date) {
+      const specificDateStr = formData.date.toISOString().split('T')[0]; // Get just the date part
+      const dateAvailability = uiFormattedAvailability.filter(
+        item => item.base.type === 'specific' && 
+               item.base.date && 
+               item.base.date.startsWith(specificDateStr)
+      );
+      
+      dateAvailability.forEach(item => {
+        if (checkTimeOverlap(
+          formData.startTime,
+          formData.endTime,
+          item.base.start_time,
+          item.base.end_time
+        )) {
+          hasOverlap = true;
+          const formattedDate = formatDate(item.base.date);
+          if (!overlapDays.includes(formattedDate)) {
+            overlapDays.push(formattedDate);
+          }
+        }
+      });
     }
 
     return { hasOverlap, overlapDays };
   };
 
   // Handle base availability submission
-  const onSubmitBase = async (data: BaseAvailabilityFormValues) => {
+  const onSubmitBase = async (data: BaseAvailabilityFormValues, forceAdd = false) => {
     try {
       if (data.type === 'recurring' && data.days) {
         // Add recurring availability for each selected day
         for (const day of data.days) {
-          await addBaseAvailability(convertBaseToAPIFormat({
-            type: 'recurring',
-            day,
-            startTime: data.startTime,
-            endTime: data.endTime,
-          }));
+          try {
+            // Check for overlaps first
+            const dayAvailability = uiFormattedAvailability.filter(
+              item => item.base.type === 'recurring' && item.base.day === day
+            );
+            
+            let overlappingSlot = null;
+            for (const item of dayAvailability) {
+              if (checkTimeOverlap(
+                data.startTime,
+                data.endTime,
+                item.base.start_time,
+                item.base.end_time
+              )) {
+                overlappingSlot = item;
+                break;
+              }
+            }
+            
+            if (overlappingSlot && !forceAdd) {
+              // Calculate merged slot times
+              const mergedStartTime = data.startTime < overlappingSlot.base.start_time ? 
+                data.startTime : overlappingSlot.base.start_time;
+              const mergedEndTime = data.endTime > overlappingSlot.base.end_time ? 
+                data.endTime : overlappingSlot.base.end_time;
+              
+              // Set up merge function
+              const handleMerge = async () => {
+                // Delete the old slot
+                await deleteBaseAvailability(overlappingSlot.base.id);
+                
+                // Create new merged slot
+                const apiData = convertBaseToAPIFormat({
+                  type: 'recurring',
+                  day,
+                  startTime: mergedStartTime,
+                  endTime: mergedEndTime,
+                });
+                
+                await addBaseAvailability({
+                  ...apiData,
+                  forceAdd: true
+                });
+              };
+              
+              // Set up replace function
+              const handleReplace = async () => {
+                // Delete the old slot
+                await deleteBaseAvailability(overlappingSlot.base.id);
+                
+                // Add the new slot
+                const apiData = convertBaseToAPIFormat({
+                  type: 'recurring',
+                  day,
+                  startTime: data.startTime,
+                  endTime: data.endTime,
+                });
+                
+                await addBaseAvailability({
+                  ...apiData,
+                  forceAdd: true
+                });
+              };
+              
+              // Open the overlap dialog
+              setOverlapDialogState({
+                isOpen: true,
+                day,
+                newSlot: { startTime: data.startTime, endTime: data.endTime },
+                existingSlot: { startTime: overlappingSlot.base.start_time, endTime: overlappingSlot.base.end_time },
+                mergedSlot: { startTime: mergedStartTime, endTime: mergedEndTime },
+                onMerge: handleMerge,
+                onReplace: handleReplace,
+                formData: data
+              });
+              
+              // Skip to next day
+              continue;
+            }
+            
+            // Normal add flow
+            const apiData = convertBaseToAPIFormat({
+              type: 'recurring',
+              day,
+              startTime: data.startTime,
+              endTime: data.endTime,
+            });
+            
+            await addBaseAvailability({
+              ...apiData,
+              forceAdd: true // Always force add here since we've handled overlaps above
+            });
+          } catch (error) {
+            console.error(`Error adding availability for ${day}:`, error);
+            toast({
+              variant: "destructive",
+              title: `Error adding availability for ${day}`,
+              description: error instanceof Error ? error.message : "An unknown error occurred",
+            });
+            // Continue with the next day
+          }
         }
       } else if (data.type === 'specific' && data.date) {
         // Add specific date availability
-        await addBaseAvailability(convertBaseToAPIFormat({
-          type: 'specific',
-          date: data.date.toISOString(),
-          startTime: data.startTime,
-          endTime: data.endTime,
-        }));
+        try {
+          // Check for overlaps first for specific dates
+          const specificDateStr = data.date.toISOString().split('T')[0]; // Get just the date part
+          const dateAvailability = uiFormattedAvailability.filter(
+            item => item.base.type === 'specific' && 
+                   item.base.date && 
+                   item.base.date.startsWith(specificDateStr)
+          );
+          
+          let overlappingSlot = null;
+          for (const item of dateAvailability) {
+            if (checkTimeOverlap(
+              data.startTime,
+              data.endTime,
+              item.base.start_time,
+              item.base.end_time
+            )) {
+              overlappingSlot = item;
+              break;
+            }
+          }
+          
+          if (overlappingSlot && !forceAdd) {
+            // Calculate merged slot times
+            const mergedStartTime = data.startTime < overlappingSlot.base.start_time ? 
+              data.startTime : overlappingSlot.base.start_time;
+            const mergedEndTime = data.endTime > overlappingSlot.base.end_time ? 
+              data.endTime : overlappingSlot.base.end_time;
+            
+            // Set up merge function
+            const handleMerge = async () => {
+              // Delete the old slot
+              await deleteBaseAvailability(overlappingSlot.base.id);
+              
+              // Create new merged slot
+              const apiData = convertBaseToAPIFormat({
+                type: 'specific',
+                date: data.date?.toISOString() || new Date().toISOString(),
+                startTime: mergedStartTime,
+                endTime: mergedEndTime,
+              });
+              
+              await addBaseAvailability({
+                ...apiData,
+                forceAdd: true
+              });
+            };
+            
+            // Set up replace function
+            const handleReplace = async () => {
+              // Delete the old slot
+              await deleteBaseAvailability(overlappingSlot.base.id);
+              
+              // Add the new slot
+              const apiData = convertBaseToAPIFormat({
+                type: 'specific',
+                date: data.date?.toISOString() || new Date().toISOString(),
+                startTime: data.startTime,
+                endTime: data.endTime,
+              });
+              
+              await addBaseAvailability({
+                ...apiData,
+                forceAdd: true
+              });
+            };
+            
+            // Format the date for display
+            const formattedDate = formatDate(overlappingSlot.base.date);
+            
+            // Open the overlap dialog
+            setOverlapDialogState({
+              isOpen: true,
+              day: formattedDate,
+              newSlot: { startTime: data.startTime, endTime: data.endTime },
+              existingSlot: { startTime: overlappingSlot.base.start_time, endTime: overlappingSlot.base.end_time },
+              mergedSlot: { startTime: mergedStartTime, endTime: mergedEndTime },
+              onMerge: handleMerge,
+              onReplace: handleReplace,
+              formData: data
+            });
+            
+            // Skip to refresh
+            return;
+          }
+          
+          const apiData = convertBaseToAPIFormat({
+            type: 'specific',
+            date: data.date.toISOString(),
+            startTime: data.startTime,
+            endTime: data.endTime,
+          });
+          
+          // Add forceAdd parameter
+          await addBaseAvailability({
+            ...apiData,
+            forceAdd: true // Always force add here since we've handled overlaps above
+          });
+        } catch (error) {
+          console.error('Error adding specific date availability:', error);
+          toast({
+            variant: "destructive",
+            title: "Error adding availability",
+            description: error instanceof Error ? error.message : "An unknown error occurred",
+          });
+        }
       }
-
-      await refreshAvailability();
       
+      // Refresh data after adding availability
+      await refreshAvailability();
       toast({
-        title: "Availability saved",
-        description: "Your availability has been updated successfully.",
+        title: "Availability added",
+        description: "Your availability has been successfully added.",
       });
-    } catch (err) {
-      console.error('Error saving availability:', err);
+    } catch (error) {
+      console.error('Error adding availability:', error);
       toast({
-        title: "Error saving availability",
-        description: err instanceof Error ? err.message : "An unexpected error occurred",
         variant: "destructive",
+        title: "Error adding availability",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
       });
-      throw err;
     }
   };
 
@@ -195,7 +429,7 @@ export default function AvailabilityPage() {
         <h1 className="text-2xl font-bold">Availability</h1>
         <Button onClick={() => setIsBaseDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Regular Hours
+          Add Availability
         </Button>
       </div>
 
@@ -221,7 +455,7 @@ export default function AvailabilityPage() {
                   <div className="text-center py-12 border rounded-lg">
                     <h3 className="text-lg font-medium">No hours set</h3>
                     <p className="text-gray-500 mt-2">
-                      Click "Add Regular Hours" to set your working hours.
+                      Click "Add Availability" to set your working hours.
                     </p>
                   </div>
                 ) : (
@@ -250,7 +484,7 @@ export default function AvailabilityPage() {
             <div className="text-center py-12 border rounded-lg">
               <h3 className="text-lg font-medium">No hours set</h3>
               <p className="text-gray-500 mt-2">
-                Click "Add Regular Hours" to set your working hours.
+                Click "Add Availability" to set your working hours.
               </p>
             </div>
           ) : (
@@ -265,6 +499,245 @@ export default function AvailabilityPage() {
         onOpenChange={setIsBaseDialogOpen}
         onSubmit={onSubmitBase}
         checkForOverlaps={checkForOverlaps}
+        onOverlapDetected={(formData) => {
+          // Handle the overlap detection here
+          if (formData.type === 'recurring' && formData.days && formData.days.length > 0) {
+            // Get all days with overlaps
+            const daysWithOverlaps = formData.days.filter(day => {
+              const dayAvailability = uiFormattedAvailability.filter(
+                item => item.base.type === 'recurring' && item.base.day === day
+              );
+              
+              return dayAvailability.some(item => 
+                checkTimeOverlap(
+                  formData.startTime,
+                  formData.endTime,
+                  item.base.start_time,
+                  item.base.end_time
+                )
+              );
+            });
+            
+            if (daysWithOverlaps.length > 0) {
+              // Process the first day with an overlap
+              const day = daysWithOverlaps[0];
+              
+              // Find the overlapping slot
+              const dayAvailability = uiFormattedAvailability.filter(
+                item => item.base.type === 'recurring' && item.base.day === day
+              );
+              
+              let overlappingSlot = null;
+              for (const item of dayAvailability) {
+                if (checkTimeOverlap(
+                  formData.startTime,
+                  formData.endTime,
+                  item.base.start_time,
+                  item.base.end_time
+                )) {
+                  overlappingSlot = item;
+                  break;
+                }
+              }
+              
+              if (overlappingSlot) {
+                // Calculate merged slot times
+                const mergedStartTime = formData.startTime < overlappingSlot.base.start_time ? 
+                  formData.startTime : overlappingSlot.base.start_time;
+                const mergedEndTime = formData.endTime > overlappingSlot.base.end_time ? 
+                  formData.endTime : overlappingSlot.base.end_time;
+                
+                // Create a function to process all days with overlaps
+                const processAllDaysWithOverlaps = async (action: 'merge' | 'replace') => {
+                  // Process each day with an overlap
+                  for (const currentDay of daysWithOverlaps) {
+                    // Find the overlapping slot for this day
+                    const currentDayAvailability = uiFormattedAvailability.filter(
+                      item => item.base.type === 'recurring' && item.base.day === currentDay
+                    );
+                    
+                    let currentOverlappingSlot = null;
+                    for (const item of currentDayAvailability) {
+                      if (checkTimeOverlap(
+                        formData.startTime,
+                        formData.endTime,
+                        item.base.start_time,
+                        item.base.end_time
+                      )) {
+                        currentOverlappingSlot = item;
+                        break;
+                      }
+                    }
+                    
+                    if (currentOverlappingSlot) {
+                      // Delete the old slot
+                      await deleteBaseAvailability(currentOverlappingSlot.base.id);
+                      
+                      if (action === 'merge') {
+                        // Calculate merged times for this day
+                        const currentMergedStartTime = formData.startTime < currentOverlappingSlot.base.start_time ? 
+                          formData.startTime : currentOverlappingSlot.base.start_time;
+                        const currentMergedEndTime = formData.endTime > currentOverlappingSlot.base.end_time ? 
+                          formData.endTime : currentOverlappingSlot.base.end_time;
+                        
+                        // Create new merged slot
+                        const apiData = convertBaseToAPIFormat({
+                          type: 'recurring',
+                          day: currentDay,
+                          startTime: currentMergedStartTime,
+                          endTime: currentMergedEndTime,
+                        });
+                        
+                        await addBaseAvailability({
+                          ...apiData,
+                          forceAdd: true
+                        });
+                      } else {
+                        // Add the new slot (replace)
+                        const apiData = convertBaseToAPIFormat({
+                          type: 'recurring',
+                          day: currentDay,
+                          startTime: formData.startTime,
+                          endTime: formData.endTime,
+                        });
+                        
+                        await addBaseAvailability({
+                          ...apiData,
+                          forceAdd: true
+                        });
+                      }
+                    }
+                  }
+                  
+                  // Process non-overlapping days
+                  const nonOverlappingDays = formData.days?.filter(d => !daysWithOverlaps.includes(d)) || [];
+                  for (const currentDay of nonOverlappingDays) {
+                    const apiData = convertBaseToAPIFormat({
+                      type: 'recurring',
+                      day: currentDay,
+                      startTime: formData.startTime,
+                      endTime: formData.endTime,
+                    });
+                    
+                    await addBaseAvailability({
+                      ...apiData,
+                      forceAdd: true
+                    });
+                  }
+                };
+                
+                // Set up merge function
+                const handleMerge = async () => {
+                  await processAllDaysWithOverlaps('merge');
+                };
+                
+                // Set up replace function
+                const handleReplace = async () => {
+                  await processAllDaysWithOverlaps('replace');
+                };
+                
+                // Format the days for display
+                const daysList = daysWithOverlaps.length > 1 
+                  ? `${daysWithOverlaps.join(', ')} (${daysWithOverlaps.length} days)`
+                  : day;
+                
+                // Open the overlap dialog
+                setOverlapDialogState({
+                  isOpen: true,
+                  day: daysList,
+                  newSlot: { startTime: formData.startTime, endTime: formData.endTime },
+                  existingSlot: { startTime: overlappingSlot.base.start_time, endTime: overlappingSlot.base.end_time },
+                  mergedSlot: { startTime: mergedStartTime, endTime: mergedEndTime },
+                  onMerge: handleMerge,
+                  onReplace: handleReplace,
+                  formData
+                });
+              }
+            }
+          } else if (formData.type === 'specific' && formData.date) {
+            // Handle specific date overlaps
+            const specificDateStr = formData.date.toISOString().split('T')[0]; // Get just the date part
+            const dateAvailability = uiFormattedAvailability.filter(
+              item => item.base.type === 'specific' && 
+                     item.base.date && 
+                     item.base.date.startsWith(specificDateStr)
+            );
+            
+            let overlappingSlot = null;
+            for (const item of dateAvailability) {
+              if (checkTimeOverlap(
+                formData.startTime,
+                formData.endTime,
+                item.base.start_time,
+                item.base.end_time
+              )) {
+                overlappingSlot = item;
+                break;
+              }
+            }
+            
+            if (overlappingSlot) {
+              // Calculate merged slot times
+              const mergedStartTime = formData.startTime < overlappingSlot.base.start_time ? 
+                formData.startTime : overlappingSlot.base.start_time;
+              const mergedEndTime = formData.endTime > overlappingSlot.base.end_time ? 
+                formData.endTime : overlappingSlot.base.end_time;
+              
+              // Set up merge function
+              const handleMerge = async () => {
+                // Delete the old slot
+                await deleteBaseAvailability(overlappingSlot.base.id);
+                
+                // Create new merged slot
+                const apiData = convertBaseToAPIFormat({
+                  type: 'specific',
+                  date: formData.date?.toISOString() || new Date().toISOString(),
+                  startTime: mergedStartTime,
+                  endTime: mergedEndTime,
+                });
+                
+                await addBaseAvailability({
+                  ...apiData,
+                  forceAdd: true
+                });
+              };
+              
+              // Set up replace function
+              const handleReplace = async () => {
+                // Delete the old slot
+                await deleteBaseAvailability(overlappingSlot.base.id);
+                
+                // Add the new slot
+                const apiData = convertBaseToAPIFormat({
+                  type: 'specific',
+                  date: formData.date?.toISOString() || new Date().toISOString(),
+                  startTime: formData.startTime,
+                  endTime: formData.endTime,
+                });
+                
+                await addBaseAvailability({
+                  ...apiData,
+                  forceAdd: true
+                });
+              };
+              
+              // Format the date for display
+              const formattedDate = formatDate(overlappingSlot.base.date);
+              
+              // Open the overlap dialog
+              setOverlapDialogState({
+                isOpen: true,
+                day: formattedDate,
+                newSlot: { startTime: formData.startTime, endTime: formData.endTime },
+                existingSlot: { startTime: overlappingSlot.base.start_time, endTime: overlappingSlot.base.end_time },
+                mergedSlot: { startTime: mergedStartTime, endTime: mergedEndTime },
+                onMerge: handleMerge,
+                onReplace: handleReplace,
+                formData
+              });
+            }
+          }
+        }}
       />
       
       {/* Exception Dialog */}
@@ -275,6 +748,56 @@ export default function AvailabilityPage() {
         baseStartTime={exceptionDialogState.baseStartTime}
         baseEndTime={exceptionDialogState.baseEndTime}
         onSubmit={onSubmitException}
+      />
+      
+      {/* Overlap Dialog */}
+      <OverlapDialog
+        isOpen={overlapDialogState.isOpen}
+        onOpenChange={(open) => {
+          setOverlapDialogState(prev => ({ ...prev, isOpen: open }));
+          // If dialog is closed without choosing an option, refresh the data
+          if (!open) {
+            refreshAvailability();
+          }
+        }}
+        day={overlapDialogState.day}
+        newSlot={overlapDialogState.newSlot}
+        existingSlot={overlapDialogState.existingSlot}
+        mergedSlot={overlapDialogState.mergedSlot}
+        onMerge={async () => {
+          try {
+            await overlapDialogState.onMerge();
+            await refreshAvailability();
+            toast({
+              title: "Availability merged",
+              description: "Your availability has been successfully merged.",
+            });
+          } catch (error) {
+            console.error('Error merging availability:', error);
+            toast({
+              variant: "destructive",
+              title: "Error merging availability",
+              description: error instanceof Error ? error.message : "An unknown error occurred",
+            });
+          }
+        }}
+        onReplace={async () => {
+          try {
+            await overlapDialogState.onReplace();
+            await refreshAvailability();
+            toast({
+              title: "Availability replaced",
+              description: "Your availability has been successfully replaced.",
+            });
+          } catch (error) {
+            console.error('Error replacing availability:', error);
+            toast({
+              variant: "destructive",
+              title: "Error replacing availability",
+              description: error instanceof Error ? error.message : "An unknown error occurred",
+            });
+          }
+        }}
       />
     </div>
   );

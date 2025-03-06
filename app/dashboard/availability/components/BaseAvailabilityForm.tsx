@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format } from 'date-fns';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X, Clock, Calendar as CalendarIcon } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogClose,
 } from '@/components/ui/dialog';
 import {
   Form,
@@ -36,15 +37,17 @@ import { DAYS_OF_WEEK, TIME_OPTIONS, BUSINESS_HOURS } from '../utils/time-utils'
 interface BaseAvailabilityFormProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: BaseAvailabilityFormValues) => Promise<void>;
+  onSubmit: (data: BaseAvailabilityFormValues, forceAdd?: boolean) => Promise<void>;
   checkForOverlaps?: (formData: BaseAvailabilityFormValues) => { hasOverlap: boolean, overlapDays: string[] };
+  onOverlapDetected?: (data: BaseAvailabilityFormValues) => void;
 }
 
 const BaseAvailabilityForm = ({
   isOpen,
   onOpenChange,
   onSubmit,
-  checkForOverlaps
+  checkForOverlaps,
+  onOverlapDetected
 }: BaseAvailabilityFormProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,9 +92,9 @@ const BaseAvailabilityForm = ({
     // Check for overlaps if the function is provided
     if (checkForOverlaps) {
       const overlaps = checkForOverlaps(data);
-      setOverlapWarning(overlaps);
       
       if (overlaps.hasOverlap) {
+        setOverlapWarning(overlaps);
         return; // Don't submit if there are overlaps
       }
     }
@@ -100,7 +103,7 @@ const BaseAvailabilityForm = ({
     setError(null);
 
     try {
-      await onSubmit(data);
+      await onSubmit(data, false); // Not forcing the add
       form.reset({
         type: 'recurring',
         days: [],
@@ -117,39 +120,44 @@ const BaseAvailabilityForm = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Add Regular Hours</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden rounded-lg">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
+          <div className="flex justify-between items-center">
+            <DialogTitle className="text-2xl font-bold">Add Availability</DialogTitle>
+          </div>
+          <p className="text-blue-100 mt-2">Set your availability for appointments</p>
+        </div>
+        
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="p-6 space-y-6">
             <FormField
               control={form.control}
               name="type"
               render={({ field }) => (
                 <FormItem className="space-y-3">
-                  <FormLabel>Availability Type</FormLabel>
+                  <FormLabel className="text-base font-semibold text-gray-800">Availability Type</FormLabel>
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
                       defaultValue={field.value}
-                      className="flex flex-col space-y-1"
+                      className="flex flex-col space-y-2"
                     >
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center space-x-3 space-y-0 rounded-md border p-3 hover:bg-gray-50 transition-colors">
                         <FormControl>
                           <RadioGroupItem value="recurring" />
                         </FormControl>
-                        <FormLabel className="font-normal">
+                        <FormLabel className="font-medium cursor-pointer flex-1">
                           Weekly Recurring
                         </FormLabel>
                       </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center space-x-3 space-y-0 rounded-md border p-3 hover:bg-gray-50 transition-colors">
                         <FormControl>
                           <RadioGroupItem value="specific" />
                         </FormControl>
-                        <FormLabel className="font-normal">
+                        <FormLabel className="font-medium cursor-pointer flex-1">
                           Specific Date
                         </FormLabel>
+                        <CalendarIcon className="h-4 w-4 text-gray-400" />
                       </FormItem>
                     </RadioGroup>
                   </FormControl>
@@ -164,40 +172,47 @@ const BaseAvailabilityForm = ({
                 name="days"
                 render={() => (
                   <FormItem>
-                    <div className="mb-4">
-                      <FormLabel className="text-base">Select Days</FormLabel>
-                      <FormDescription>
+                    <div className="mb-3">
+                      <FormLabel className="text-base font-semibold text-gray-800">Select Days</FormLabel>
+                      <FormDescription className="text-sm text-gray-500">
                         Select the days of the week for this availability.
                       </FormDescription>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="grid grid-cols-7 gap-2">
                       {DAYS_OF_WEEK.map((day) => (
                         <FormField
                           key={day}
                           control={form.control}
                           name="days"
                           render={({ field }) => {
+                            const isChecked = field.value?.includes(day);
                             return (
                               <FormItem
                                 key={day}
-                                className="flex flex-row items-start space-x-3 space-y-0"
+                                className="flex flex-col items-center space-y-2"
                               >
                                 <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(day)}
-                                    onCheckedChange={(checked) => {
-                                      return checked
-                                        ? field.onChange([...field.value || [], day])
-                                        : field.onChange(
-                                            field.value?.filter(
-                                              (value) => value !== day
-                                            )
-                                          );
+                                  <div 
+                                    className={`
+                                      w-10 h-10 rounded-full flex items-center justify-center cursor-pointer
+                                      ${isChecked 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                      } 
+                                      transition-colors
+                                    `}
+                                    onClick={() => {
+                                      const newValue = isChecked
+                                        ? field.value?.filter(value => value !== day)
+                                        : [...(field.value || []), day];
+                                      field.onChange(newValue);
                                     }}
-                                  />
+                                  >
+                                    {day.charAt(0)}
+                                  </div>
                                 </FormControl>
-                                <FormLabel className="font-normal">
-                                  {day}
+                                <FormLabel className="text-xs font-normal cursor-pointer">
+                                  {day.substring(0, 3)}
                                 </FormLabel>
                               </FormItem>
                             );
@@ -217,14 +232,17 @@ const BaseAvailabilityForm = ({
                 name="date"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Date</FormLabel>
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      disabled={(date) => date < new Date()}
-                      initialFocus
-                    />
+                    <FormLabel className="text-base font-semibold text-gray-800 mb-2">Date</FormLabel>
+                    <div className="flex justify-center">
+                      <Calendar
+                        mode="single"
+                        selected={field.value}
+                        onSelect={field.onChange}
+                        disabled={(date) => date < new Date()}
+                        initialFocus
+                        className="rounded-md border shadow-sm"
+                      />
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -233,13 +251,17 @@ const BaseAvailabilityForm = ({
 
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <FormLabel className="text-base">Time Range</FormLabel>
+                <FormLabel className="text-base font-semibold text-gray-800 flex items-center">
+                  <Clock className="h-4 w-4 mr-2 text-gray-500" />
+                  Time Range
+                </FormLabel>
                 <div className="flex space-x-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => applyTimePreset('fullDay')}
+                    className="text-xs px-3 py-1 h-auto rounded-full border-blue-200 text-blue-700 hover:bg-blue-50"
                   >
                     Full Day
                   </Button>
@@ -248,6 +270,7 @@ const BaseAvailabilityForm = ({
                     variant="outline"
                     size="sm"
                     onClick={() => applyTimePreset('morning')}
+                    className="text-xs px-3 py-1 h-auto rounded-full border-blue-200 text-blue-700 hover:bg-blue-50"
                   >
                     Morning
                   </Button>
@@ -256,6 +279,7 @@ const BaseAvailabilityForm = ({
                     variant="outline"
                     size="sm"
                     onClick={() => applyTimePreset('afternoon')}
+                    className="text-xs px-3 py-1 h-auto rounded-full border-blue-200 text-blue-700 hover:bg-blue-50"
                   >
                     Afternoon
                   </Button>
@@ -268,17 +292,17 @@ const BaseAvailabilityForm = ({
                   name="startTime"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Start Time</FormLabel>
+                      <FormLabel className="font-medium text-gray-700">Start Time</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="w-full">
                             <SelectValue placeholder="Select start time" />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
+                        <SelectContent className="max-h-[300px]">
                           {TIME_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
@@ -295,17 +319,17 @@ const BaseAvailabilityForm = ({
                   name="endTime"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>End Time</FormLabel>
+                      <FormLabel className="font-medium text-gray-700">End Time</FormLabel>
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="w-full">
                             <SelectValue placeholder="Select end time" />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
+                        <SelectContent className="max-h-[300px]">
                           {TIME_OPTIONS.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
@@ -321,19 +345,26 @@ const BaseAvailabilityForm = ({
             </div>
 
             {overlapWarning.hasOverlap && (
-              <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-md">
-                <p className="text-yellow-800 font-medium">Time Overlap Warning</p>
-                <p className="text-yellow-700 text-sm">
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-md">
+                <p className="text-amber-800 font-medium">Time Overlap Warning</p>
+                <p className="text-amber-700 text-sm mt-1">
                   This time range overlaps with existing availability on:{' '}
-                  {overlapWarning.overlapDays.join(', ')}
+                  <span className="font-medium">{overlapWarning.overlapDays.join(', ')}</span>
                 </p>
-                <div className="mt-2 flex justify-end">
+                <p className="text-amber-700 text-sm mt-2">
+                  When you proceed, you'll have the option to:
+                </p>
+                <ul className="list-disc list-inside text-amber-700 text-sm mt-1 ml-2">
+                  <li>Merge the overlapping time slots into a single slot</li>
+                  <li>Replace the existing slot with this new one</li>
+                </ul>
+                <div className="mt-3 flex justify-end space-x-3">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setOverlapWarning({ hasOverlap: false, overlapDays: [] })}
-                    className="mr-2"
+                    className="border-amber-300 text-amber-800 hover:bg-amber-100"
                   >
                     Cancel
                   </Button>
@@ -341,38 +372,55 @@ const BaseAvailabilityForm = ({
                     type="button"
                     size="sm"
                     onClick={() => {
+                      const formData = form.getValues();
                       setOverlapWarning({ hasOverlap: false, overlapDays: [] });
-                      setIsSubmitting(true);
-                      onSubmit(form.getValues())
-                        .then(() => {
-                          form.reset();
-                          onOpenChange(false);
-                        })
-                        .catch((err) => {
-                          setError(err instanceof Error ? err.message : 'An error occurred');
-                        })
-                        .finally(() => {
-                          setIsSubmitting(false);
-                        });
+                      
+                      // If onOverlapDetected is provided, call it and close the form
+                      if (onOverlapDetected) {
+                        onOverlapDetected(formData);
+                        onOpenChange(false);
+                      } else {
+                        // Fall back to the old behavior if onOverlapDetected is not provided
+                        setIsSubmitting(true);
+                        onSubmit(formData, true)
+                          .then(() => {
+                            form.reset();
+                            onOpenChange(false);
+                          })
+                          .catch((err) => {
+                            setError(err instanceof Error ? err.message : 'An error occurred');
+                          })
+                          .finally(() => {
+                            setIsSubmitting(false);
+                          });
+                      }
                     }}
                   >
-                    Save Anyway
+                    Proceed
                   </Button>
                 </div>
               </div>
             )}
 
-            {error && <div className="text-red-500 text-sm">{error}</div>}
+            {error && (
+              <div className="bg-red-50 border border-red-200 p-3 rounded-md text-red-600 text-sm">
+                {error}
+              </div>
+            )}
 
-            <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
+            <DialogFooter className="mt-6 pt-4 border-t flex justify-end">
+              <Button 
+                type="submit" 
+                disabled={isSubmitting} 
+                className="bg-blue-600 hover:bg-blue-700"
+              >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Saving...
                   </>
                 ) : (
-                  'Save Hours'
+                  'Save Availability'
                 )}
               </Button>
             </DialogFooter>

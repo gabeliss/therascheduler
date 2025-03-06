@@ -103,6 +103,7 @@ export function useAvailability() {
     specificDate,
     isAvailable = true,
     reason,
+    forceAdd = false,
   }: {
     dayOfWeek: number;
     startTime: string;
@@ -111,6 +112,7 @@ export function useAvailability() {
     specificDate?: string;
     isAvailable?: boolean;
     reason?: string;
+    forceAdd?: boolean;
   }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -164,18 +166,20 @@ export function useAvailability() {
       
       console.log('Using therapist profile ID:', therapistProfile.id);
       
-      // Check for overlapping time slots
-      const hasOverlap = await checkForOverlappingSlots(
-        therapistProfile.id,
-        dayOfWeek,
-        startTime,
-        endTime,
-        isRecurring,
-        specificDate
-      );
-      
-      if (hasOverlap) {
-        throw new Error('This time slot overlaps with an existing availability. Please choose a different time or delete the existing slot first.');
+      // Check for overlapping time slots if forceAdd is false
+      if (!forceAdd) {
+        const hasOverlap = await checkForOverlappingSlots(
+          therapistProfile.id,
+          dayOfWeek,
+          startTime,
+          endTime,
+          isRecurring,
+          specificDate
+        );
+        
+        if (hasOverlap) {
+          throw new Error('This time slot overlaps with an existing availability. Please choose a different time or use the "Save Anyway" option to override.');
+        }
       }
       
       const availabilityData: any = {
