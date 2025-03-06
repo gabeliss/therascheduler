@@ -7,8 +7,7 @@ import { Plus } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import { useHierarchicalAvailability } from '@/app/hooks/use-hierarchical-availability';
 import { BaseAvailabilityFormValues, ExceptionFormValues } from './utils/schemas';
-import { formatDate } from './utils/time-utils';
-import { checkTimeOverlap } from './utils/time-utils';
+import { formatDate, formatTime, checkTimeOverlap, DAYS_OF_WEEK } from './utils/time-utils';
 import { convertBaseToAPIFormat, convertToUIFormat, HierarchicalItem } from './utils/types';
 import BaseAvailabilityForm from './components/BaseAvailabilityForm';
 import ExceptionDialog from './components/ExceptionDialog';
@@ -71,6 +70,7 @@ export default function AvailabilityPage() {
     // Check for overlaps in recurring availability
     if (formData.type === 'recurring' && formData.days && formData.days.length > 0) {
       formData.days.forEach(day => {
+        // Check against other recurring availability
         const dayAvailability = uiFormattedAvailability.filter(
           item => item.base.type === 'recurring' && item.base.day === day
         );
@@ -88,11 +88,38 @@ export default function AvailabilityPage() {
             }
           }
         });
+        
+        // Also check against specific dates that fall on this day of the week
+        const specificDateAvailability = uiFormattedAvailability.filter(item => {
+          if (item.base.type === 'specific' && item.base.date) {
+            // Convert the specific date to a day of the week
+            const date = new Date(item.base.date);
+            const dayOfWeek = DAYS_OF_WEEK[date.getDay()];
+            return dayOfWeek === day;
+          }
+          return false;
+        });
+        
+        specificDateAvailability.forEach(item => {
+          if (checkTimeOverlap(
+            formData.startTime,
+            formData.endTime,
+            item.base.start_time,
+            item.base.end_time
+          )) {
+            hasOverlap = true;
+            if (!overlapDays.includes(day)) {
+              overlapDays.push(`${day} (${formatDate(item.base.date)})`);
+            }
+          }
+        });
       });
     } 
     // Check for overlaps in specific date availability
     else if (formData.type === 'specific' && formData.date) {
       const specificDateStr = formData.date.toISOString().split('T')[0]; // Get just the date part
+      
+      // Check against other specific dates
       const dateAvailability = uiFormattedAvailability.filter(
         item => item.base.type === 'specific' && 
                item.base.date && 
@@ -110,6 +137,28 @@ export default function AvailabilityPage() {
           const formattedDate = formatDate(item.base.date);
           if (!overlapDays.includes(formattedDate)) {
             overlapDays.push(formattedDate);
+          }
+        }
+      });
+      
+      // Also check against recurring availability for the day of the week
+      const date = new Date(formData.date);
+      const dayOfWeek = DAYS_OF_WEEK[date.getDay()];
+      
+      const recurringAvailability = uiFormattedAvailability.filter(
+        item => item.base.type === 'recurring' && item.base.day === dayOfWeek
+      );
+      
+      recurringAvailability.forEach(item => {
+        if (checkTimeOverlap(
+          formData.startTime,
+          formData.endTime,
+          item.base.start_time,
+          item.base.end_time
+        )) {
+          hasOverlap = true;
+          if (!overlapDays.includes(dayOfWeek)) {
+            overlapDays.push(`${formatDate(formData.date?.toISOString())} (${dayOfWeek})`);
           }
         }
       });
@@ -504,11 +553,12 @@ export default function AvailabilityPage() {
           if (formData.type === 'recurring' && formData.days && formData.days.length > 0) {
             // Get all days with overlaps
             const daysWithOverlaps = formData.days.filter(day => {
+              // Check against recurring availability
               const dayAvailability = uiFormattedAvailability.filter(
                 item => item.base.type === 'recurring' && item.base.day === day
               );
               
-              return dayAvailability.some(item => 
+              const hasRecurringOverlap = dayAvailability.some(item => 
                 checkTimeOverlap(
                   formData.startTime,
                   formData.endTime,
@@ -516,6 +566,27 @@ export default function AvailabilityPage() {
                   item.base.end_time
                 )
               );
+              
+              // Check against specific dates that fall on this day
+              const specificDateAvailability = uiFormattedAvailability.filter(item => {
+                if (item.base.type === 'specific' && item.base.date) {
+                  const date = new Date(item.base.date);
+                  const dayOfWeek = DAYS_OF_WEEK[date.getDay()];
+                  return dayOfWeek === day;
+                }
+                return false;
+              });
+              
+              const hasSpecificDateOverlap = specificDateAvailability.some(item => 
+                checkTimeOverlap(
+                  formData.startTime,
+                  formData.endTime,
+                  item.base.start_time,
+                  item.base.end_time
+                )
+              );
+              
+              return hasRecurringOverlap || hasSpecificDateOverlap;
             });
             
             if (daysWithOverlaps.length > 0) {
@@ -657,14 +728,27 @@ export default function AvailabilityPage() {
           } else if (formData.type === 'specific' && formData.date) {
             // Handle specific date overlaps
             const specificDateStr = formData.date.toISOString().split('T')[0]; // Get just the date part
+            
+            // Check against other specific dates
             const dateAvailability = uiFormattedAvailability.filter(
               item => item.base.type === 'specific' && 
                      item.base.date && 
                      item.base.date.startsWith(specificDateStr)
             );
             
+            // Check against recurring availability for this day of the week
+            const date = new Date(formData.date);
+            const dayOfWeek = DAYS_OF_WEEK[date.getDay()];
+            
+            const recurringAvailability = uiFormattedAvailability.filter(
+              item => item.base.type === 'recurring' && item.base.day === dayOfWeek
+            );
+            
+            // Combine both types of availability
+            const allAvailability = [...dateAvailability, ...recurringAvailability];
+            
             let overlappingSlot = null;
-            for (const item of dateAvailability) {
+            for (const item of allAvailability) {
               if (checkTimeOverlap(
                 formData.startTime,
                 formData.endTime,
@@ -721,13 +805,18 @@ export default function AvailabilityPage() {
                 });
               };
               
-              // Format the date for display
-              const formattedDate = formatDate(overlappingSlot.base.date);
+              // Format the date/day for display
+              let displayDay = '';
+              if (overlappingSlot.base.type === 'specific' && overlappingSlot.base.date) {
+                displayDay = formatDate(overlappingSlot.base.date);
+              } else if (overlappingSlot.base.type === 'recurring') {
+                displayDay = `${formatDate(formData.date?.toISOString())} (${overlappingSlot.base.day})`;
+              }
               
               // Open the overlap dialog
               setOverlapDialogState({
                 isOpen: true,
-                day: formattedDate,
+                day: displayDay,
                 newSlot: { startTime: formData.startTime, endTime: formData.endTime },
                 existingSlot: { startTime: overlappingSlot.base.start_time, endTime: overlappingSlot.base.end_time },
                 mergedSlot: { startTime: mergedStartTime, endTime: mergedEndTime },

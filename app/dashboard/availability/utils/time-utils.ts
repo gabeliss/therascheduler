@@ -26,32 +26,60 @@ export const findTimeIndex = (time: string) => {
 
 // Format time for display
 export const formatTime = (time: string) => {
-  // Handle both HH:MM and HH:MM:SS formats
-  const timeValue = time.includes(':') ? time.split(':').slice(0, 2).join(':') : time;
+  if (!time) return '';
   
-  // Find the corresponding time option
-  const timeOption = TIME_OPTIONS.find(option => option.value === timeValue);
-  
-  if (timeOption) {
-    return timeOption.label; // This is already in the format "h:mm a" (e.g., "9:00 am")
-  }
-  
-  // Fallback for times not in TIME_OPTIONS
   try {
+    // Handle both HH:MM and HH:MM:SS formats
+    const timeValue = time.includes(':') ? time.split(':').slice(0, 2).join(':') : time;
+    
+    // Find the corresponding time option
+    const timeOption = TIME_OPTIONS.find(option => option.value === timeValue);
+    
+    if (timeOption) {
+      return timeOption.label; // This is already in the format "h:mm a" (e.g., "9:00 am")
+    }
+    
+    // Fallback for times not in TIME_OPTIONS
     // Parse the time string (assuming format is HH:MM or HH:MM:SS)
     const [hoursStr, minutesStr] = timeValue.split(':');
     const hours = parseInt(hoursStr, 10);
     const minutes = parseInt(minutesStr, 10);
     
-    // Create a date object with the parsed hours and minutes
-    const date = new Date();
-    date.setHours(hours, minutes, 0, 0);
+    // Validate hours and minutes
+    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      throw new Error(`Invalid time format: ${time}`);
+    }
     
-    // Format the time in 12-hour format with am/pm
-    return format(date, 'h:mm a').toLowerCase();
+    // Format the time manually without using date-fns format
+    const period = hours >= 12 ? 'pm' : 'am';
+    const displayHours = hours % 12 || 12; // Convert 0 to 12 for 12 AM
+    const displayMinutes = minutes.toString().padStart(2, '0');
+    
+    return `${displayHours}:${displayMinutes} ${period}`;
   } catch (error) {
     console.error('Error formatting time:', error);
-    return time; // Return the original time string if parsing fails
+    
+    // Try to extract and format the time in a more basic way
+    try {
+      const parts = time.split(':');
+      if (parts.length >= 2) {
+        const hours = parseInt(parts[0], 10);
+        const minutes = parseInt(parts[1], 10);
+        
+        if (!isNaN(hours) && !isNaN(minutes)) {
+          const period = hours >= 12 ? 'pm' : 'am';
+          const displayHours = hours % 12 || 12;
+          const displayMinutes = minutes.toString().padStart(2, '0');
+          
+          return `${displayHours}:${displayMinutes} ${period}`;
+        }
+      }
+    } catch (e) {
+      // If all else fails, return the original time
+      console.error('Fallback formatting failed:', e);
+    }
+    
+    return time; // Return the original time string if all parsing fails
   }
 };
 
