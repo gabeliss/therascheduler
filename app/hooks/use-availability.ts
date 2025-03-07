@@ -28,43 +28,10 @@ export function useAvailability() {
 
       console.log('Therapist profile check:', { therapistProfile, error: profileError });
 
-      // If no therapist profile exists, create one
+      // If no therapist profile exists, throw an error
       if (!therapistProfile) {
-        console.log('No therapist profile found, creating one...');
-        try {
-          // Create a server-side API route to handle this
-          const response = await fetch('/api/create-therapist-profile', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: user.id,
-              name: user.user_metadata?.name || 'Therapist',
-              email: user.email,
-            }),
-          });
-
-          const responseData = await response.json();
-          console.log('API response for profile creation:', responseData);
-
-          if (!response.ok) {
-            throw new Error(`Failed to create therapist profile: ${JSON.stringify(responseData)}`);
-          }
-
-          therapistProfile = responseData;
-        } catch (createError) {
-          console.error('Error creating therapist profile:', createError);
-          setAvailability([]);
-          setError('Failed to create therapist profile. Please try again later.');
-          return;
-        }
-      }
-
-      if (!therapistProfile) {
-        console.log('Still no therapist profile, returning empty availability');
-        setAvailability([]);
-        return;
+        console.log('No therapist profile found');
+        throw new Error('No therapist profile found. Please contact support or ensure you are using the correct account.');
       }
 
       console.log('Using therapist profile:', therapistProfile);
@@ -129,39 +96,10 @@ export function useAvailability() {
       
       console.log('Therapist profile check:', { therapistProfile, profileError });
       
-      // If no therapist profile exists, create one
+      // If no therapist profile exists, throw an error
       if (!therapistProfile) {
-        console.log('No therapist profile found, creating one...');
-        try {
-          // Create a server-side API route to handle this
-          const response = await fetch('/api/create-therapist-profile', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              userId: user.id,
-              name: user.user_metadata?.name || 'Therapist',
-              email: user.email,
-            }),
-          });
-
-          const responseData = await response.json();
-          console.log('API response for profile creation:', responseData);
-
-          if (!response.ok) {
-            throw new Error(`Failed to create therapist profile: ${JSON.stringify(responseData)}`);
-          }
-
-          therapistProfile = responseData;
-        } catch (createError) {
-          console.error('Error creating therapist profile:', createError);
-          throw new Error('Failed to create therapist profile. Please try again later.');
-        }
-      }
-      
-      if (!therapistProfile) {
-        throw new Error('Therapist profile not found. Please complete your profile setup first.');
+        console.log('No therapist profile found');
+        throw new Error('No therapist profile found. Please contact support or ensure you are using the correct account.');
       }
       
       console.log('Using therapist profile ID:', therapistProfile.id);

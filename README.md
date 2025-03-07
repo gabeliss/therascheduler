@@ -4,7 +4,7 @@ A modern scheduling platform built for therapists to manage their appointments a
 
 ## Features
 
-- 🔐 Secure therapist authentication
+- 🔐 Secure therapist authentication and profile management
 - 📅 Easy appointment scheduling
 - 🔄 Google Calendar integration
 - 📱 SMS & email notifications
@@ -16,7 +16,7 @@ A modern scheduling platform built for therapists to manage their appointments a
 - **Frontend**: Next.js 14, React, TypeScript
 - **Styling**: Tailwind CSS, shadcn/ui
 - **Database**: Supabase (PostgreSQL)
-- **Authentication**: Firebase Auth
+- **Authentication**: Supabase Auth
 - **State Management**: React Query
 - **Form Handling**: React Hook Form
 - **Notifications**: Twilio (SMS) & SendGrid (email)
@@ -26,7 +26,6 @@ A modern scheduling platform built for therapists to manage their appointments a
 - Node.js 18.x or later
 - npm 9.x or later
 - Supabase account
-- Firebase account
 - SendGrid account
 - Twilio account
 - Google Cloud Console account (for Calendar API)
@@ -52,11 +51,7 @@ A modern scheduling platform built for therapists to manage their appointments a
    # Supabase Configuration
    NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-
-   # Firebase Configuration
-   NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-firebase-auth-domain
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-firebase-project-id
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
    # SendGrid Configuration
    SENDGRID_API_KEY=your-sendgrid-api-key
@@ -69,12 +64,23 @@ A modern scheduling platform built for therapists to manage their appointments a
    # Google Calendar API
    GOOGLE_CALENDAR_CLIENT_ID=your-google-client-id
    GOOGLE_CALENDAR_CLIENT_SECRET=your-google-client-secret
+
+   # Webhook Configuration
+   WEBHOOK_SECRET=your-webhook-secret
    ```
 
 4. Set up your database:
 
-   - Create a new project in Supabase
-   - Run the database schema provided in `docs/DOC.md`
+   ```bash
+   # Install Supabase CLI
+   npm install supabase --save-dev
+
+   # Apply database migrations
+   supabase db push
+
+   # Deploy Edge Functions
+   ./scripts/deploy-edge-function.sh
+   ```
 
 5. Run the development server:
 
@@ -96,9 +102,41 @@ therascheduler/
 │   ├── types/      # TypeScript types
 │   └── ...         # Next.js app router pages
 ├── public/         # Static assets
-├── docs/          # Documentation
+├── supabase/
+│   ├── migrations/ # Database migrations
+│   └── functions/  # Edge Functions
+├── scripts/        # Deployment scripts
 └── ...            # Config files
 ```
+
+## Core Features
+
+### Therapist Profiles
+
+Therapist profiles are automatically created when users sign up:
+
+1. **Profile Creation**: Automatic via Supabase Auth Webhook
+2. **Data Structure**:
+   - Unique user ID (linked to auth)
+   - Name and email
+   - Creation and update timestamps
+3. **Security**:
+   - Row Level Security (RLS) policies
+   - Service role access for admin functions
+   - Secure profile creation via Edge Functions
+
+### Availability Management
+
+Therapists can manage their availability through:
+
+1. **Unified Availability System**:
+   - Regular weekly schedules
+   - One-time exceptions
+   - Recurring exceptions
+2. **Real-time Updates**:
+   - Instant schedule changes
+   - Conflict prevention
+   - Client notifications
 
 ## Development Workflow
 

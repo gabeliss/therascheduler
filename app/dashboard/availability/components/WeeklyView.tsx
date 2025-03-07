@@ -1,166 +1,156 @@
-import React, { useState, useEffect } from 'react';
-import { format, isBefore, startOfDay } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+'use client';
+
+import { useState } from 'react';
+import { format, addDays, startOfWeek, isAfter, isSameDay } from 'date-fns';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { getWeekDates } from '../utils/time-utils';
-import AvailabilityItem from './AvailabilityItem';
-import { HierarchicalItem } from '../utils/types';
+import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { UnifiedAvailabilityException } from '@/app/types/index';
+import { formatTime } from '../utils/time-utils';
 
 interface WeeklyViewProps {
-  hierarchicalAvailability: HierarchicalItem[];
-  onAddException: (baseId: string, baseStartTime: string, baseEndTime: string, specificDate?: Date) => void;
-  onDeleteBase: (id: string) => void;
+  exceptions: UnifiedAvailabilityException[];
+  onAddException: (date: Date) => void;
   onDeleteException: (id: string) => void;
-  formatDate: (dateString: string | undefined) => string;
+  formatDate: (dateString?: string) => string;
 }
 
-const WeeklyView = ({
-  hierarchicalAvailability,
-  onAddException,
-  onDeleteBase,
+export default function WeeklyView({ 
+  exceptions, 
+  onAddException, 
   onDeleteException,
-  formatDate
-}: WeeklyViewProps) => {
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [weekDates, setWeekDates] = useState(getWeekDates(weekOffset));
+  formatDate 
+}: WeeklyViewProps) {
+  const [currentDate, setCurrentDate] = useState(new Date());
   
-  // Update weekDates when weekOffset changes
-  useEffect(() => {
-    setWeekDates(getWeekDates(weekOffset));
-  }, [weekOffset]);
+  // Get the start of the week (Sunday)
+  const weekStart = startOfWeek(currentDate);
   
-  // Helper function to format week range for display
-  const getWeekRangeText = () => {
-    const startOfWeek = weekDates[0].date;
-    const endOfWeek = weekDates[6].date;
-    return `${format(startOfWeek, 'MMM d')} - ${format(endOfWeek, 'MMM d, yyyy')}`;
+  // Generate the days of the week
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  
+  // Navigate to previous week
+  const goToPreviousWeek = () => {
+    setCurrentDate(addDays(currentDate, -7));
   };
-
-  // Helper function to check if a date is in the past
-  const isPastDate = (date: Date) => {
-    return isBefore(date, startOfDay(new Date()));
+  
+  // Navigate to next week
+  const goToNextWeek = () => {
+    setCurrentDate(addDays(currentDate, 7));
   };
-
+  
+  // Navigate to current week
+  const goToCurrentWeek = () => {
+    setCurrentDate(new Date());
+  };
+  
+  // Get exceptions for a specific date
+  const getExceptionsForDate = (date: Date) => {
+    const dayOfWeek = date.getDay();
+    const formattedDate = format(date, 'yyyy-MM-dd');
+    
+    // Get specific date exceptions
+    const specificDateExceptions = exceptions.filter(ex => 
+      !ex.is_recurring && 
+      ex.specific_date === formattedDate
+    );
+    
+    // Get recurring exceptions
+    const recurringExceptions = exceptions.filter(ex => 
+      ex.is_recurring && 
+      ex.day_of_week === dayOfWeek
+    );
+    
+    // For recurring exceptions, only include them for current or future dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const filteredRecurringExceptions = recurringExceptions.filter(() => 
+      isAfter(date, today) || isSameDay(date, today)
+    );
+    
+    // Combine both types of exceptions
+    return [...specificDateExceptions, ...filteredRecurringExceptions];
+  };
+  
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Weekly Schedule</h2>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setWeekOffset(weekOffset - 1)}
-          >
+        <div className="flex space-x-2">
+          <Button variant="outline" size="sm" onClick={goToPreviousWeek}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-sm font-medium">{getWeekRangeText()}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setWeekOffset(weekOffset + 1)}
-          >
+          <Button variant="outline" size="sm" onClick={goToCurrentWeek}>
+            Today
+          </Button>
+          <Button variant="outline" size="sm" onClick={goToNextWeek}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </div>
-
-      <div className="space-y-6">
-        {weekDates.map((weekDay) => {
-          // Check if this day is in the past
-          const isInPast = isPastDate(weekDay.date);
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+        {weekDays.map((day) => {
+          const dayExceptions = getExceptionsForDate(day);
+          const isToday = isSameDay(day, new Date());
           
-          // Filter availability for this day
-          const dayAvailability = hierarchicalAvailability.filter((item) => {
-            if (item.base.type === 'recurring') {
-              return item.base.day === weekDay.dayName;
-            } else if (item.base.type === 'specific' && item.base.date) {
-              try {
-                const baseDate = new Date(item.base.date);
-                return baseDate.toDateString() === weekDay.date.toDateString();
-              } catch (error) {
-                console.error('Error comparing dates:', error);
-                return false;
-              }
-            }
-            return false;
-          });
-
-          // Group availabilities by time range to consolidate recurring and specific
-          const groupedAvailability: { [key: string]: HierarchicalItem[] } = {};
-          
-          dayAvailability.forEach(item => {
-            const timeKey = `${item.base.start_time}-${item.base.end_time}`;
-            if (!groupedAvailability[timeKey]) {
-              groupedAvailability[timeKey] = [];
-            }
-            groupedAvailability[timeKey].push(item);
-          });
-
-          // For each time range, prioritize specific date over recurring
-          const consolidatedAvailability: HierarchicalItem[] = Object.values(groupedAvailability).map(items => {
-            // If there's a specific date availability, use that one
-            const specificItem = items.find(item => item.base.type === 'specific');
-            if (specificItem) return specificItem;
-            
-            // Otherwise use the recurring one
-            return items[0];
-          });
-
           return (
-            <div key={weekDay.dayName} className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
-                <h3 className="font-medium">
-                  {weekDay.dayName}, {format(weekDay.date, 'MMMM d')}
-                </h3>
-                {dayAvailability.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      // Find the first availability for this day to use as a base
-                      const firstAvail = dayAvailability[0];
-                      onAddException(
-                        firstAvail.base.id, 
-                        firstAvail.base.start_time, 
-                        firstAvail.base.end_time,
-                        weekDay.date
-                      );
-                    }}
-                    disabled={isInPast}
-                    title={isInPast ? "Cannot block time in the past" : "Block time on this day"}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Block Time
-                  </Button>
-                )}
-              </div>
-              <div className="p-4">
-                {consolidatedAvailability.length > 0 ? (
-                  <div className="space-y-2">
-                    {consolidatedAvailability.map((item) => (
-                      <AvailabilityItem
-                        key={item.base.id}
-                        item={item}
-                        onAddException={onAddException}
-                        onDeleteBase={onDeleteBase}
-                        onDeleteException={onDeleteException}
-                        formatDate={formatDate}
-                        isInPast={isInPast}
-                      />
-                    ))}
+            <Card key={day.toISOString()} className={`${isToday ? 'border-primary' : ''}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-center">
+                  <div>{format(day, 'EEEE')}</div>
+                  <div className="text-sm text-muted-foreground">{format(day, 'MMM d')}</div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {dayExceptions.length === 0 ? (
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    No time off
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-gray-500">
-                    <p>No availability set for this day.</p>
+                  <div className="space-y-2">
+                    {dayExceptions.map((exception) => (
+                      <div 
+                        key={exception.id} 
+                        className="bg-red-50 p-2 rounded-md border border-red-100 flex justify-between items-center"
+                      >
+                        <div>
+                          <div className="font-medium text-sm">
+                            {formatTime(exception.start_time)} - {formatTime(exception.end_time)}
+                          </div>
+                          {exception.reason && (
+                            <div className="text-xs text-gray-500">{exception.reason}</div>
+                          )}
+                          {exception.is_recurring && (
+                            <div className="text-xs text-blue-500">Repeats weekly</div>
+                          )}
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => onDeleteException(exception.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
-            </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full mt-2"
+                  onClick={() => onAddException(day)}
+                >
+                  Add Time Off
+                </Button>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
     </div>
   );
-};
-
-export default WeeklyView; 
+} 

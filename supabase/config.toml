@@ -1,0 +1,6 @@
+[functions.create_therapist_profile]
+verify_jwt = true
+[http.functions]
+[http.functions.create_therapist_profile]
+path = "/auth/signup-handler"
+method = ["POST"] 

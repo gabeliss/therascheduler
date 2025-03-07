@@ -33,37 +33,32 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { TIME_OPTIONS } from '../utils/time-utils';
 import { format } from 'date-fns';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 
-interface ExceptionDialogProps {
+interface UnifiedExceptionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  baseId: string | null;
-  baseStartTime: string;
-  baseEndTime: string;
   specificDate?: Date;
   onSubmit: (data: ExceptionFormValues) => Promise<void>;
 }
 
-const ExceptionDialog = ({ 
+const UnifiedExceptionDialog = ({ 
   isOpen, 
   onOpenChange, 
-  baseId, 
-  baseStartTime, 
-  baseEndTime,
   specificDate,
   onSubmit 
-}: ExceptionDialogProps) => {
+}: UnifiedExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasOverlap, setHasOverlap] = useState(false);
-  const supabase = createClientComponentClient();
+  
+  const { checkForOverlaps } = useUnifiedAvailability();
 
   const form = useForm<ExceptionFormValues>({
     resolver: zodResolver(refinedExceptionSchema),
     defaultValues: {
       startTime: '12:00', // Default to 12:00 PM (noon)
-      endTime: '12:00',   // Default to 12:00 PM (noon)
+      endTime: '13:00',   // Default to 1:00 PM
       reason: '',
       isRecurring: false,
     },
@@ -76,44 +71,29 @@ const ExceptionDialog = ({
 
   // Check for overlapping exceptions when times change
   useEffect(() => {
-    const checkForOverlap = async () => {
-      if (!baseId || !startTime || !endTime) return;
-      
-      try {
-        // Get existing exceptions for this base availability
-        const { data: exceptions, error } = await supabase
-          .from('availability_exceptions')
-          .select('*')
-          .eq('base_availability_id', baseId);
-          
-        if (error) throw error;
-        
-        // Check if any existing exceptions overlap with the selected time range
-        const overlaps = (exceptions || []).some((ex: any) => {
-          return (
-            (startTime >= ex.start_time && startTime < ex.end_time) ||
-            (endTime > ex.start_time && endTime <= ex.end_time) ||
-            (startTime <= ex.start_time && endTime >= ex.end_time)
-          );
-        });
-        
-        setHasOverlap(overlaps);
-      } catch (err) {
-        console.error('Error checking for overlaps:', err);
-      }
-    };
+    if (!startTime || !endTime || !specificDate) return;
     
-    checkForOverlap();
-  }, [baseId, startTime, endTime, supabase]);
+    // Get day of week (0-6, Sunday-Saturday)
+    const dayOfWeek = specificDate.getDay();
+    
+    // Format date as YYYY-MM-DD
+    const formattedDate = format(specificDate, 'yyyy-MM-dd');
+    
+    // Check for overlaps
+    const overlaps = checkForOverlaps(
+      startTime,
+      endTime,
+      isRecurring,
+      isRecurring ? dayOfWeek : undefined,
+      !isRecurring ? formattedDate : undefined
+    );
+    
+    setHasOverlap(overlaps);
+  }, [startTime, endTime, isRecurring, specificDate, checkForOverlaps]);
 
   const handleSubmit = async (data: ExceptionFormValues) => {
-    if (!baseId) {
-      setError('No time slot selected. Please try again.');
-      return;
-    }
-
-    // Don't allow submission if there's an overlap (unless it's a recurring exception)
-    if (hasOverlap && !isRecurring) {
+    // Don't allow submission if there's an overlap
+    if (hasOverlap) {
       setError('This time range overlaps with an existing exception. Please choose a different time.');
       return;
     }
@@ -152,7 +132,7 @@ const ExceptionDialog = ({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            {hasOverlap && !isRecurring && (
+            {hasOverlap && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
@@ -244,7 +224,7 @@ const ExceptionDialog = ({
                     <div className="space-y-1 leading-none">
                       <FormLabel>Repeat weekly</FormLabel>
                       <FormDescription>
-                        Block this time every week, not just this specific date
+                        Block this time every week on {format(specificDate, 'EEEE')}
                       </FormDescription>
                     </div>
                   </FormItem>
@@ -256,7 +236,7 @@ const ExceptionDialog = ({
             <DialogFooter className="w-full">
               <Button 
                 type="submit" 
-                disabled={isSubmitting || (hasOverlap && !isRecurring)} 
+                disabled={isSubmitting || hasOverlap} 
                 className="w-full"
               >
                 {isSubmitting ? (
@@ -276,4 +256,4 @@ const ExceptionDialog = ({
   );
 };
 
-export default ExceptionDialog; 
+export default UnifiedExceptionDialog; 

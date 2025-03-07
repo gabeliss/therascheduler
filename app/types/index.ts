@@ -96,8 +96,27 @@ export interface AvailabilityException {
   updated_at: string;
 }
 
+// New unified exception model
+export interface UnifiedAvailabilityException {
+  id: string;
+  therapist_id: string;
+  day_of_week?: number; // 0-6 for Sunday-Saturday (only for recurring exceptions)
+  start_time: string;
+  end_time: string;
+  reason?: string;
+  is_recurring: boolean;
+  specific_date?: string; // ISO date string (only for specific date exceptions)
+  created_at: string;
+  updated_at: string;
+}
+
 // Combined type for UI representation
 export interface HierarchicalAvailability {
   base: BaseAvailability;
   exceptions: AvailabilityException[];
+}
+
+// New unified availability representation for UI
+export interface UnifiedAvailability {
+  exceptions: UnifiedAvailabilityException[];
 } 

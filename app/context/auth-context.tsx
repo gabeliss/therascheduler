@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('User signed up successfully:', data.user.id);
 
       // Step 2: Create therapist profile using API route
-      const response = await fetch('/api/auth/register', {
+      const response = await fetch('/api/create-therapist-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,6 +83,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: name,
         }),
       });
+      
+      console.log('Profile creation request sent with:', {
+        userId: data.user.id,
+        email,
+        name
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -91,6 +97,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
         throw new Error(errorData.error || 'Failed to create therapist profile');
       }
+      
+      const profileData = await response.json();
+      console.log('Profile creation response:', profileData);
 
       console.log('Therapist profile created successfully');
       

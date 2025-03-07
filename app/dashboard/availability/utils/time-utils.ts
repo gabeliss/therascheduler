@@ -147,4 +147,21 @@ export const formatDate = (dateString: string | undefined) => {
     console.error('Error formatting date:', error);
     return dateString;
   }
-}; 
+};
+
+// Add TIME_SLOTS constant for the unified calendar view
+export const TIME_SLOTS = Array.from({ length: 26 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 7; // Start at 7am
+  const minute = (i % 2) * 30;
+  const timeValue = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  
+  // Format for display (e.g., "7:00 AM")
+  const displayHour = hour % 12 || 12;
+  const amPm = hour < 12 ? 'AM' : 'PM';
+  const label = `${displayHour}:${minute.toString().padStart(2, '0')} ${amPm}`;
+  
+  return {
+    value: timeValue,
+    label
+  };
+}); 
