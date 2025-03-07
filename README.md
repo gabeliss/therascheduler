@@ -72,14 +72,22 @@ A modern scheduling platform built for therapists to manage their appointments a
 4. Set up your database:
 
    ```bash
+   # Option 1: Using Supabase CLI
    # Install Supabase CLI
-   npm install supabase --save-dev
+   npm install -g supabase
+
+   # Link your project
+   supabase link --project-ref your-project-ref
 
    # Apply database migrations
    supabase db push
 
-   # Deploy Edge Functions
-   ./scripts/deploy-edge-function.sh
+   # Option 2: Using Supabase Dashboard
+   # 1. Log in to your Supabase dashboard
+   # 2. Navigate to the SQL Editor
+   # 3. Copy the contents of the migration files in the `supabase/migrations` directory
+   # 4. Paste and execute the SQL in the SQL Editor
+   # 5. Optionally, run the seed script in `supabase/seed.sql` to populate the database with sample data
    ```
 
 5. Run the development server:
