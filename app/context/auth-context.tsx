@@ -4,6 +4,9 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../utils/supabase';
 
+// Log that we're using the shared Supabase client
+console.log('Auth context using shared Supabase client');
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -21,6 +24,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('Initial auth session:', {
+        hasSession: !!session,
+        userId: session?.user?.id,
+        email: session?.user?.email,
+      });
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -29,6 +37,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('Auth state changed:', {
+        event: _event,
+        hasSession: !!session,
+        userId: session?.user?.id,
+      });
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -37,14 +50,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    console.log('Attempting to sign in with email:', email);
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    
     if (error) {
       console.error('Sign in error:', error.message);
       throw error;
     }
+    
+    console.log('Sign in successful:', {
+      userId: data.user?.id,
+      email: data.user?.email,
+      hasSession: !!data.session,
+    });
   };
 
   const signUp = async (email: string, password: string, name: string) => {

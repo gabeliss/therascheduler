@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useSupabase } from '@/app/utils/supabase';
 import { UnifiedAvailabilityException, UnifiedAvailability } from '@/app/types/index';
 import { useTherapistProfile } from '@/app/hooks/use-therapist-profile';
 import { useAuth } from '@/app/context/auth-context';
@@ -8,7 +8,7 @@ export function useUnifiedAvailability() {
   const [unifiedAvailability, setUnifiedAvailability] = useState<UnifiedAvailabilityException[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClientComponentClient();
+  const { supabase, session } = useSupabase();
   const { user } = useAuth();
   const { therapistProfile, loading: profileLoading, error: profileError } = useTherapistProfile();
 
@@ -127,6 +127,26 @@ export function useUnifiedAvailability() {
         throw new Error('Therapist profile not found. Please refresh the page and try again.');
       }
 
+      // Add detailed logging for authentication state
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      console.log('Authentication state in addUnifiedException:', {
+        hasSession: !!currentSession,
+        userId: currentSession?.user?.id,
+        therapistId: therapistProfile.id,
+        accessToken: currentSession?.access_token ? 'Present' : 'Missing'
+      });
+
+      // If no session, try to refresh it
+      if (!currentSession) {
+        console.log('No session found, attempting to refresh...');
+        const { data: refreshData } = await supabase.auth.refreshSession();
+        console.log('Session refresh result:', {
+          hasSession: !!refreshData.session,
+          userId: refreshData.session?.user?.id,
+          accessToken: refreshData.session?.access_token ? 'Present' : 'Missing'
+        });
+      }
+
       // Validate inputs
       if (isRecurring && dayOfWeek === undefined) {
         throw new Error('Day of week is required for recurring exceptions');
@@ -187,6 +207,43 @@ export function useUnifiedAvailability() {
   ): boolean {
     const startMinutes = timeToMinutes(startTime);
     const endMinutes = timeToMinutes(endTime);
+
+    // For specific date exceptions, check if the date is in the past
+    if (!isRecurring && specificDate) {
+      const specificDateObj = new Date(specificDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // If the specific date is in the past, don't allow setting exceptions
+      if (specificDateObj < today) {
+        return true; // Treat as overlap to prevent setting exceptions in the past
+      }
+    }
+    
+    // For recurring exceptions, ensure they only affect current and future days
+    if (isRecurring && dayOfWeek !== undefined) {
+      // Get the next occurrence of this day of the week
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const nextOccurrence = new Date(today);
+      const currentDayOfWeek = today.getDay();
+      const daysToAdd = (dayOfWeek - currentDayOfWeek + 7) % 7;
+      
+      // If today is the same day of week and it's already past the start time,
+      // we should consider the next week's occurrence
+      if (daysToAdd === 0) {
+        const currentHour = new Date().getHours();
+        const currentMinute = new Date().getMinutes();
+        const [startHour, startMinute] = startTime.split(':').map(Number);
+        
+        if (currentHour > startHour || (currentHour === startHour && currentMinute >= startMinute)) {
+          nextOccurrence.setDate(nextOccurrence.getDate() + 7);
+        }
+      } else {
+        nextOccurrence.setDate(nextOccurrence.getDate() + daysToAdd);
+      }
+    }
 
     return unifiedAvailability.some(exception => {
       // Skip if different types (recurring vs specific)

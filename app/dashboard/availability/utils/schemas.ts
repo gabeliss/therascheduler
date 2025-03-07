@@ -16,6 +16,8 @@ export const exceptionSchema = z.object({
   endTime: z.string(),
   reason: z.string().optional(),
   isRecurring: z.boolean().default(false),
+  dayOfWeek: z.number().optional(),
+  specificDate: z.string().optional(),
 });
 
 // Define the types after the schemas

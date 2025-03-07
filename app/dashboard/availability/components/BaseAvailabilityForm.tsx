@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BaseAvailabilityFormValues, refinedBaseSchema } from '../utils/schemas';
 import { DAYS_OF_WEEK, TIME_OPTIONS, BUSINESS_HOURS } from '../utils/time-utils';
 
@@ -130,124 +130,99 @@ const BaseAvailabilityForm = ({
         
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="p-6 space-y-6">
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel className="text-base font-semibold text-gray-800">Availability Type</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                      className="flex flex-col space-y-2"
-                    >
-                      <FormItem className="flex items-center space-x-3 space-y-0 rounded-md border p-3 hover:bg-gray-50 transition-colors">
-                        <FormControl>
-                          <RadioGroupItem value="recurring" />
-                        </FormControl>
-                        <FormLabel className="font-medium cursor-pointer flex-1">
-                          Weekly Recurring
-                        </FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0 rounded-md border p-3 hover:bg-gray-50 transition-colors">
-                        <FormControl>
-                          <RadioGroupItem value="specific" />
-                        </FormControl>
-                        <FormLabel className="font-medium cursor-pointer flex-1">
-                          Specific Date
-                        </FormLabel>
-                        <CalendarIcon className="h-4 w-4 text-gray-400" />
-                      </FormItem>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <Tabs 
+              defaultValue="recurring" 
+              value={formType}
+              onValueChange={value => form.setValue('type', value as 'recurring' | 'specific')}
+            >
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="recurring">Weekly Recurring</TabsTrigger>
+                <TabsTrigger value="specific">Specific Date</TabsTrigger>
+              </TabsList>
 
-            {formType === 'recurring' && (
-              <FormField
-                control={form.control}
-                name="days"
-                render={() => (
-                  <FormItem>
-                    <div className="mb-3">
-                      <FormLabel className="text-base font-semibold text-gray-800">Select Days</FormLabel>
-                      <FormDescription className="text-sm text-gray-500">
-                        Select the days of the week for this availability.
-                      </FormDescription>
-                    </div>
-                    <div className="grid grid-cols-7 gap-2">
-                      {DAYS_OF_WEEK.map((day) => (
-                        <FormField
-                          key={day}
-                          control={form.control}
-                          name="days"
-                          render={({ field }) => {
-                            const isChecked = field.value?.includes(day);
-                            return (
-                              <FormItem
-                                key={day}
-                                className="flex flex-col items-center space-y-2"
-                              >
-                                <FormControl>
-                                  <div 
-                                    className={`
-                                      w-10 h-10 rounded-full flex items-center justify-center cursor-pointer
-                                      ${isChecked 
-                                        ? 'bg-blue-600 text-white' 
-                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                      } 
-                                      transition-colors
-                                    `}
-                                    onClick={() => {
-                                      const newValue = isChecked
-                                        ? field.value?.filter(value => value !== day)
-                                        : [...(field.value || []), day];
-                                      field.onChange(newValue);
-                                    }}
-                                  >
-                                    {day.charAt(0)}
-                                  </div>
-                                </FormControl>
-                                <FormLabel className="text-xs font-normal cursor-pointer">
-                                  {day.substring(0, 3)}
-                                </FormLabel>
-                              </FormItem>
-                            );
-                          }}
+              <TabsContent value="recurring" className="space-y-4 mt-4">
+                <FormField
+                  control={form.control}
+                  name="days"
+                  render={() => (
+                    <FormItem>
+                      <div className="mb-3">
+                        <FormLabel className="text-base font-semibold text-gray-800">Select Days</FormLabel>
+                        <FormDescription className="text-sm text-gray-500">
+                          Select the days of the week for this availability.
+                        </FormDescription>
+                      </div>
+                      <div className="grid grid-cols-7 gap-2">
+                        {DAYS_OF_WEEK.map((day) => (
+                          <FormField
+                            key={day}
+                            control={form.control}
+                            name="days"
+                            render={({ field }) => {
+                              const isChecked = field.value?.includes(day);
+                              return (
+                                <FormItem
+                                  key={day}
+                                  className="flex flex-col items-center space-y-2"
+                                >
+                                  <FormControl>
+                                    <div 
+                                      className={`
+                                        w-10 h-10 rounded-full flex items-center justify-center cursor-pointer
+                                        ${isChecked 
+                                          ? 'bg-blue-600 text-white' 
+                                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        } 
+                                        transition-colors
+                                      `}
+                                      onClick={() => {
+                                        const newValue = isChecked
+                                          ? field.value?.filter(value => value !== day)
+                                          : [...(field.value || []), day];
+                                        field.onChange(newValue);
+                                      }}
+                                    >
+                                      {day.charAt(0)}
+                                    </div>
+                                  </FormControl>
+                                  <FormLabel className="text-xs font-normal cursor-pointer">
+                                    {day.substring(0, 3)}
+                                  </FormLabel>
+                                </FormItem>
+                              );
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </TabsContent>
+
+              <TabsContent value="specific" className="space-y-4 mt-4">
+                <FormField
+                  control={form.control}
+                  name="date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel className="text-base font-semibold text-gray-800 mb-2">Date</FormLabel>
+                      <div className="flex justify-center">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                          initialFocus
+                          className="rounded-md border shadow-sm"
                         />
-                      ))}
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {formType === 'specific' && (
-              <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel className="text-base font-semibold text-gray-800 mb-2">Date</FormLabel>
-                    <div className="flex justify-center">
-                      <Calendar
-                        mode="single"
-                        selected={field.value}
-                        onSelect={field.onChange}
-                        disabled={(date) => date < new Date()}
-                        initialFocus
-                        className="rounded-md border shadow-sm"
-                      />
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </TabsContent>
+            </Tabs>
 
             <div className="space-y-4">
               <div className="flex justify-between items-center">
@@ -408,11 +383,19 @@ const BaseAvailabilityForm = ({
               </div>
             )}
 
-            <DialogFooter className="mt-6 pt-4 border-t flex justify-end">
+            <DialogFooter className="flex justify-center gap-4 mt-6 pt-4 border-t sm:justify-center">
+              <Button 
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="min-w-[100px]"
+              >
+                Cancel
+              </Button>
               <Button 
                 type="submit" 
-                disabled={isSubmitting} 
-                className="bg-blue-600 hover:bg-blue-700"
+                disabled={isSubmitting}
+                className="min-w-[100px]"
               >
                 {isSubmitting ? (
                   <>

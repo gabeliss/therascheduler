@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useSupabase } from '@/app/utils/supabase';
 import { TherapistProfile } from '@/app/types/index';
 import { useAuth } from '@/app/context/auth-context';
 
@@ -7,7 +7,7 @@ export function useTherapistProfile() {
   const [therapistProfile, setTherapistProfile] = useState<TherapistProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClientComponentClient();
+  const { supabase } = useSupabase();
   const { user } = useAuth();
 
   useEffect(() => {

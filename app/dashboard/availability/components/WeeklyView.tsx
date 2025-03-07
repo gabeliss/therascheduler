@@ -4,22 +4,31 @@ import { useState } from 'react';
 import { format, addDays, startOfWeek, isAfter, isSameDay } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Edit } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime } from '../utils/time-utils';
+import { formatTime, timeToMinutes } from '../utils/time-utils';
+import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 
-interface WeeklyViewProps {
+export interface WeeklyViewProps {
+  availability: TherapistAvailability[];
   exceptions: UnifiedAvailabilityException[];
   onAddException: (date: Date) => void;
-  onDeleteException: (id: string) => void;
-  formatDate: (dateString?: string) => string;
+  onDeleteException: (id: string) => Promise<void>;
+  onDeleteAvailability: (id: string) => Promise<void>;
+  formatDate: (dateString: string | undefined) => string;
+  onEditException?: (exception: UnifiedAvailabilityException) => void;
+  onEditAvailability?: (availability: TherapistAvailability) => void;
 }
 
-export default function WeeklyView({ 
-  exceptions, 
-  onAddException, 
+export default function WeeklyView({
+  availability,
+  exceptions,
+  onAddException,
   onDeleteException,
-  formatDate 
+  onDeleteAvailability,
+  formatDate,
+  onEditException,
+  onEditAvailability
 }: WeeklyViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   
@@ -49,6 +58,11 @@ export default function WeeklyView({
     const dayOfWeek = date.getDay();
     const formattedDate = format(date, 'yyyy-MM-dd');
     
+    // Check if this date is in the past
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isPastDate = date < today;
+    
     // Get specific date exceptions
     const specificDateExceptions = exceptions.filter(ex => 
       !ex.is_recurring && 
@@ -56,25 +70,33 @@ export default function WeeklyView({
     );
     
     // Get recurring exceptions
-    const recurringExceptions = exceptions.filter(ex => 
-      ex.is_recurring && 
-      ex.day_of_week === dayOfWeek
-    );
+    // Only show recurring exceptions for dates after they were created
+    const recurringExceptions = exceptions.filter(ex => {
+      if (!ex.is_recurring || ex.day_of_week !== dayOfWeek) return false;
+      
+      // If this is a past date, check if the exception was created before this date
+      if (isPastDate) {
+        const createdAt = new Date(ex.created_at);
+        const dateToCheck = new Date(date);
+        // Only show recurring exceptions if they were created before this date
+        return createdAt < dateToCheck;
+      }
+      
+      // For current and future dates, show all recurring exceptions
+      return true;
+    });
     
-    // For recurring exceptions, only include them for current or future dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const filteredRecurringExceptions = recurringExceptions.filter(() => 
-      isAfter(date, today) || isSameDay(date, today)
-    );
-    
-    // Combine both types of exceptions
-    return [...specificDateExceptions, ...filteredRecurringExceptions];
+    // Combine both types of exceptions and sort by start time
+    return [...specificDateExceptions, ...recurringExceptions].sort((a, b) => {
+      // Sort by start time
+      return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+    });
   };
   
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Weekly Schedule</h2>
         <div className="flex space-x-2">
@@ -90,67 +112,163 @@ export default function WeeklyView({
         </div>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-        {weekDays.map((day) => {
-          const dayExceptions = getExceptionsForDate(day);
-          const isToday = isSameDay(day, new Date());
+      {DAYS.map((day, index) => {
+        const currentDay = weekDays[index];
+        const formattedDay = format(currentDay, "EEEE, MMMM do");
+        
+        // Check if this day is in the past
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const isPastDate = currentDay < today;
+        
+        // Format the date for checking specific date entries
+        const formattedDate = format(currentDay, 'yyyy-MM-dd');
+        
+        // Check for specific date availability first
+        const specificDateAvailability = availability.filter(
+          slot => !slot.is_recurring && slot.specific_date === formattedDate
+        );
+        
+        // Check for specific date exceptions
+        const specificDateExceptions = exceptions.filter(
+          ex => !ex.is_recurring && ex.specific_date === formattedDate
+        );
+        
+        // If there are specific date availability entries, use only those
+        // Otherwise, use recurring availability
+        let dayAvailability = specificDateAvailability;
+        
+        if (specificDateAvailability.length === 0) {
+          // Show recurring availability
+          // Only show recurring availability for dates after it was created
+          dayAvailability = availability.filter(slot => {
+            if (!slot.is_recurring || slot.day_of_week !== index) return false;
+            
+            // If this is a past date, check if the availability was created before this date
+            if (isPastDate) {
+              const createdAt = new Date(slot.created_at);
+              const dateToCheck = new Date(currentDay);
+              // Only show recurring availability if it was created before this date
+              return createdAt < dateToCheck;
+            }
+            
+            // For current and future dates, show all recurring availability
+            return true;
+          });
+        }
+        
+        // For exceptions, we'll show both specific date and recurring exceptions
+        // Get recurring exceptions
+        const recurringExceptions = exceptions.filter(ex => {
+          if (!ex.is_recurring || ex.day_of_week !== index) return false;
           
-          return (
-            <Card key={day.toISOString()} className={`${isToday ? 'border-primary' : ''}`}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-center">
-                  <div>{format(day, 'EEEE')}</div>
-                  <div className="text-sm text-muted-foreground">{format(day, 'MMM d')}</div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {dayExceptions.length === 0 ? (
-                  <div className="text-center py-4 text-sm text-muted-foreground">
-                    No time off
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {dayExceptions.map((exception) => (
-                      <div 
-                        key={exception.id} 
-                        className="bg-red-50 p-2 rounded-md border border-red-100 flex justify-between items-center"
-                      >
-                        <div>
-                          <div className="font-medium text-sm">
-                            {formatTime(exception.start_time)} - {formatTime(exception.end_time)}
-                          </div>
-                          {exception.reason && (
-                            <div className="text-xs text-gray-500">{exception.reason}</div>
-                          )}
-                          {exception.is_recurring && (
-                            <div className="text-xs text-blue-500">Repeats weekly</div>
-                          )}
-                        </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => onDeleteException(exception.id)}
+          // If this is a past date, check if the exception was created before this date
+          if (isPastDate) {
+            const createdAt = new Date(ex.created_at);
+            const dateToCheck = new Date(currentDay);
+            // Only show recurring exceptions if they were created before this date
+            return createdAt < dateToCheck;
+          }
+          
+          // For current and future dates, show all recurring exceptions
+          return true;
+        });
+        
+        // Combine specific date exceptions with recurring exceptions and sort by start time
+        const dayExceptions = [...specificDateExceptions, ...recurringExceptions].sort((a, b) => {
+          // Sort by start time
+          return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+        });
+
+        return (
+          <div key={day} className="border rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-4">{formattedDay}</h3>
+            
+            {/* Base Availability */}
+            {dayAvailability.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Available Hours</h4>
+                {dayAvailability.map(slot => (
+                  <div key={slot.id} className="flex items-center justify-between bg-blue-50 p-2 rounded mb-2">
+                    <span>
+                      {format(new Date(`2000-01-01T${slot.start_time}`), 'h:mm a')} - 
+                      {format(new Date(`2000-01-01T${slot.end_time}`), 'h:mm a')}
+                    </span>
+                    <div className="flex space-x-1">
+                      {onEditAvailability && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onEditAvailability(slot)}
+                          disabled={isPastDate}
+                          title={isPastDate ? "Cannot edit past availability" : "Edit availability"}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Edit className="h-4 w-4 text-blue-500" />
                         </Button>
-                      </div>
-                    ))}
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onDeleteAvailability(slot.id)}
+                        disabled={isPastDate}
+                        title={isPastDate ? "Cannot delete past availability" : "Delete availability"}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
                   </div>
-                )}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full mt-2"
-                  onClick={() => onAddException(day)}
-                >
-                  Add Time Off
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Recurring Exceptions */}
+            {dayExceptions.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Time Off</h4>
+                {dayExceptions.map(ex => (
+                  <div key={ex.id} className="flex items-center justify-between bg-gray-50 p-2 rounded mb-2">
+                    <div>
+                      <span>
+                        {format(new Date(`2000-01-01T${ex.start_time}`), 'h:mm a')} - 
+                        {format(new Date(`2000-01-01T${ex.end_time}`), 'h:mm a')}
+                      </span>
+                      {ex.reason && (
+                        <span className="ml-2 text-gray-500">({ex.reason})</span>
+                      )}
+                    </div>
+                    <div className="flex space-x-1">
+                      {onEditException && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onEditException(ex)}
+                          disabled={isPastDate}
+                          title={isPastDate ? "Cannot edit past time off" : "Edit time off"}
+                        >
+                          <Edit className="h-4 w-4 text-blue-500" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onDeleteException(ex.id)}
+                        disabled={isPastDate}
+                        title={isPastDate ? "Cannot delete past time off" : "Delete time off"}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {dayAvailability.length === 0 && dayExceptions.length === 0 && (
+              <p className="text-gray-500 text-sm">No availability or time off set for this day.</p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 } 

@@ -28,6 +28,7 @@ interface OverlapDialogProps {
   };
   onMerge: () => void;
   onReplace: () => void;
+  onCancel?: () => void;
 }
 
 const OverlapDialog = ({
@@ -39,6 +40,7 @@ const OverlapDialog = ({
   mergedSlot,
   onMerge,
   onReplace,
+  onCancel,
 }: OverlapDialogProps) => {
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -79,7 +81,18 @@ const OverlapDialog = ({
           </p>
         </div>
         
-        <DialogFooter className="flex justify-between sm:justify-between">
+        <DialogFooter className="flex justify-center gap-4 mt-6 sm:justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              if (onCancel) onCancel();
+              onOpenChange(false);
+            }}
+            className="min-w-[100px]"
+          >
+            Cancel
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -87,6 +100,7 @@ const OverlapDialog = ({
               onReplace();
               onOpenChange(false);
             }}
+            className="min-w-[120px]"
           >
             Replace Existing
           </Button>
@@ -96,6 +110,7 @@ const OverlapDialog = ({
               onMerge();
               onOpenChange(false);
             }}
+            className="min-w-[100px]"
           >
             Merge Slots
           </Button>

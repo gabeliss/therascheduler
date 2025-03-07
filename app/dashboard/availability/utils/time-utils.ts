@@ -164,4 +164,10 @@ export const TIME_SLOTS = Array.from({ length: 26 }, (_, i) => {
     value: timeValue,
     label
   };
-}); 
+});
+
+// Convert time string (HH:MM) to minutes
+export function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+} 
