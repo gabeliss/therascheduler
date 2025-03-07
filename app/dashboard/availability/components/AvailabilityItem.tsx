@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Trash2, Plus } from 'lucide-react';
+import { Clock, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './ui/Accordion';
 import { formatTime } from '../utils/time-utils';
@@ -12,6 +12,7 @@ interface AvailabilityItemProps {
   onDeleteException: (id: string) => void;
   formatDate: (dateString: string | undefined) => string;
   showDateBadge?: boolean;
+  isInPast?: boolean;
 }
 
 const AvailabilityItem = ({
@@ -20,7 +21,8 @@ const AvailabilityItem = ({
   onDeleteBase,
   onDeleteException,
   formatDate,
-  showDateBadge = false
+  showDateBadge = false,
+  isInPast = false
 }: AvailabilityItemProps) => {
   return (
     <Accordion className="mb-4 border rounded-md overflow-hidden">
@@ -41,6 +43,8 @@ const AvailabilityItem = ({
                 e.stopPropagation();
                 onDeleteBase(item.base.id);
               }}
+              disabled={isInPast}
+              title={isInPast ? "Cannot delete past availability" : "Delete availability"}
             >
               <Trash2 className="h-4 w-4 text-red-500" />
             </Button>
@@ -50,17 +54,6 @@ const AvailabilityItem = ({
           <div className="p-4 border-t">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-medium">Time Off</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  console.log("Opening exception dialog for base ID:", item.base.id);
-                  onAddException(item.base.id, item.base.start_time, item.base.end_time);
-                }}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add Recurring Time Off
-              </Button>
             </div>
             
             {item.exceptions.length > 0 ? (
@@ -90,6 +83,8 @@ const AvailabilityItem = ({
                         console.log("Deleting time off for exception ID:", exception.id);
                         onDeleteException(exception.id);
                       }}
+                      disabled={isInPast}
+                      title={isInPast ? "Cannot delete time off from past dates" : "Delete time off"}
                     >
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </Button>
@@ -100,7 +95,7 @@ const AvailabilityItem = ({
               <div className="text-center py-4 text-gray-500">
                 <p>No time off for this time slot.</p>
                 <p className="text-sm">
-                  Add time off for lunch breaks, meetings, or other blocked times.
+                  Use the "Block Time" button at the top of the day to add time off.
                 </p>
               </div>
             )}

@@ -417,17 +417,24 @@ export default function AvailabilityPage() {
         startTime: data.startTime,
         endTime: data.endTime,
         reason: data.reason,
-        isSpecificDate: !!exceptionDialogState.specificDate,
-        specificDate: exceptionDialogState.specificDate
+        isSpecificDate: !!exceptionDialogState.specificDate && !data.isRecurring,
+        specificDate: data.isRecurring ? undefined : exceptionDialogState.specificDate,
+        isRecurring: data.isRecurring
       });
       
       await refreshAvailability();
       
       toast({
-        title: exceptionDialogState.specificDate ? "Time blocked" : "Time off saved",
-        description: exceptionDialogState.specificDate 
+        title: exceptionDialogState.specificDate && !data.isRecurring 
+          ? "Time blocked" 
+          : data.isRecurring 
+            ? "Recurring time off saved"
+            : "Time off saved",
+        description: exceptionDialogState.specificDate && !data.isRecurring 
           ? "Your time has been blocked for this specific date." 
-          : "Your time off has been added successfully.",
+          : data.isRecurring
+            ? "Your recurring time off has been added successfully."
+            : "Your time off has been added successfully.",
       });
     } catch (err) {
       console.error('Error saving time off:', err);
@@ -585,12 +592,30 @@ export default function AvailabilityPage() {
     }
   };
 
+  // Get the list of days that have availability set
+  const getAvailableDays = () => {
+    const availableDays = new Set<string>();
+    
+    uiFormattedAvailability.forEach(item => {
+      if (item.base.type === 'recurring' && item.base.day) {
+        availableDays.add(item.base.day);
+      }
+    });
+    
+    return Array.from(availableDays);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Availability</h1>
         <div className="flex space-x-2">
-          <Button onClick={() => setIsTimeOffManagerOpen(true)} variant="outline">
+          <Button 
+            onClick={() => setIsTimeOffManagerOpen(true)} 
+            variant="outline"
+            disabled={hierarchicalAvailability.length === 0}
+            title={hierarchicalAvailability.length === 0 ? "Set availability first" : "Manage time off"}
+          >
             <Clock className="h-4 w-4 mr-2" />
             Manage Time Off
           </Button>
@@ -984,6 +1009,8 @@ export default function AvailabilityPage() {
         onOpenChange={setIsTimeOffManagerOpen}
         onSubmitRecurring={onSubmitRecurringTimeOff}
         onSubmitOneTime={onSubmitOneTimeTimeOff}
+        availableDays={getAvailableDays()}
+        hierarchicalAvailability={hierarchicalAvailability}
       />
     </div>
   );

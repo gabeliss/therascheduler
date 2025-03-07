@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format, isBefore, startOfDay } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getWeekDates } from '../utils/time-utils';
@@ -36,6 +36,11 @@ const WeeklyView = ({
     return `${format(startOfWeek, 'MMM d')} - ${format(endOfWeek, 'MMM d, yyyy')}`;
   };
 
+  // Helper function to check if a date is in the past
+  const isPastDate = (date: Date) => {
+    return isBefore(date, startOfDay(new Date()));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -61,6 +66,9 @@ const WeeklyView = ({
 
       <div className="space-y-6">
         {weekDates.map((weekDay) => {
+          // Check if this day is in the past
+          const isInPast = isPastDate(weekDay.date);
+          
           // Filter availability for this day
           const dayAvailability = hierarchicalAvailability.filter((item) => {
             if (item.base.type === 'recurring') {
@@ -118,6 +126,8 @@ const WeeklyView = ({
                         weekDay.date
                       );
                     }}
+                    disabled={isInPast}
+                    title={isInPast ? "Cannot block time in the past" : "Block time on this day"}
                   >
                     <Plus className="h-4 w-4 mr-1" />
                     Block Time
@@ -135,6 +145,7 @@ const WeeklyView = ({
                         onDeleteBase={onDeleteBase}
                         onDeleteException={onDeleteException}
                         formatDate={formatDate}
+                        isInPast={isInPast}
                       />
                     ))}
                   </div>

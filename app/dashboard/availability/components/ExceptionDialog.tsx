@@ -17,6 +17,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from '@/components/ui/form';
 import {
   Select,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { TIME_OPTIONS } from '../utils/time-utils';
 import { format } from 'date-fns';
@@ -59,6 +61,7 @@ const ExceptionDialog = ({
       startTime: '12:00', // Default to 12:00 PM (noon)
       endTime: '12:00',   // Default to 12:00 PM (noon)
       reason: '',
+      isRecurring: false,
     },
   });
 
@@ -96,7 +99,7 @@ const ExceptionDialog = ({
           </DialogTitle>
           {formattedDate && (
             <DialogDescription>
-              This will only block time for this specific date.
+              Block time for this specific date or set it to repeat weekly.
             </DialogDescription>
           )}
         </DialogHeader>
@@ -169,6 +172,30 @@ const ExceptionDialog = ({
                 </FormItem>
               )}
             />
+            
+            {specificDate && (
+              <FormField
+                control={form.control}
+                name="isRecurring"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 mt-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>Repeat weekly</FormLabel>
+                      <FormDescription>
+                        Block this time every week, not just this specific date
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            )}
+            
             {error && <div className="text-red-500 text-sm">{error}</div>}
             <DialogFooter className="w-full">
               <Button type="submit" disabled={isSubmitting} className="w-full">
