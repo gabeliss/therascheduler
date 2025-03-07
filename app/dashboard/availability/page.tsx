@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Clock } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import { useHierarchicalAvailability } from '@/app/hooks/use-hierarchical-availability';
 import { BaseAvailabilityFormValues, ExceptionFormValues } from './utils/schemas';
@@ -15,6 +15,8 @@ import WeeklyView from './components/WeeklyView';
 import { HierarchicalAvailability as OriginalHierarchicalAvailability } from '@/app/types';
 import CalendarView from './calendar-view';
 import OverlapDialog from './components/OverlapDialog';
+import TimeOffManager from './components/TimeOffManager';
+import { format } from 'date-fns';
 
 export default function AvailabilityPage() {
   const { 
@@ -29,6 +31,7 @@ export default function AvailabilityPage() {
   } = useHierarchicalAvailability();
   
   const [isBaseDialogOpen, setIsBaseDialogOpen] = useState(false);
+  const [isTimeOffManagerOpen, setIsTimeOffManagerOpen] = useState(false);
   const { toast } = useToast();
 
   // Add this state for the exception dialog
@@ -36,7 +39,8 @@ export default function AvailabilityPage() {
     isOpen: false,
     baseId: null as string | null,
     baseStartTime: '',
-    baseEndTime: ''
+    baseEndTime: '',
+    specificDate: undefined as Date | undefined
   });
 
   // New state for overlap dialog
@@ -401,7 +405,7 @@ export default function AvailabilityPage() {
     }
   };
 
-  // Handle exception submission
+  // Handle exception submission for specific date
   const onSubmitException = async (data: ExceptionFormValues) => {
     if (!exceptionDialogState.baseId) {
       throw new Error('No time slot selected. Please try again.');
@@ -413,13 +417,122 @@ export default function AvailabilityPage() {
         startTime: data.startTime,
         endTime: data.endTime,
         reason: data.reason,
+        isSpecificDate: !!exceptionDialogState.specificDate,
+        specificDate: exceptionDialogState.specificDate
       });
       
       await refreshAvailability();
       
       toast({
+        title: exceptionDialogState.specificDate ? "Time blocked" : "Time off saved",
+        description: exceptionDialogState.specificDate 
+          ? "Your time has been blocked for this specific date." 
+          : "Your time off has been added successfully.",
+      });
+    } catch (err) {
+      console.error('Error saving time off:', err);
+      toast({
+        title: "Error saving time off",
+        description: err instanceof Error ? err.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
+      throw err;
+    }
+  };
+
+  // Handle recurring time off submission
+  const onSubmitRecurringTimeOff = async (data: any) => {
+    try {
+      // For each selected day, find a base availability and add an exception
+      for (const day of data.days) {
+        // Find base availability for this day
+        const baseAvailForDay = uiFormattedAvailability.find(
+          item => item.base.type === 'recurring' && item.base.day === day
+        );
+        
+        if (!baseAvailForDay) {
+          throw new Error(`No availability set for ${day}. Please set availability first.`);
+        }
+        
+        // Add exception for this day
+        await addAvailabilityException({
+          baseAvailabilityId: baseAvailForDay.base.id,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          reason: data.reason,
+          isRecurring: true
+        });
+      }
+      
+      await refreshAvailability();
+      
+      toast({
+        title: "Regular break saved",
+        description: `Your regular break has been added for ${data.days.length} day(s).`,
+      });
+    } catch (err) {
+      console.error('Error saving regular break:', err);
+      toast({
+        title: "Error saving regular break",
+        description: err instanceof Error ? err.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
+      throw err;
+    }
+  };
+
+  // Handle one-time time off submission
+  const onSubmitOneTimeTimeOff = async (data: any) => {
+    try {
+      // Get all dates in the range
+      const dates: Date[] = [];
+      const currentDate = new Date(data.startDate);
+      const endDate = new Date(data.endDate);
+      
+      while (currentDate <= endDate) {
+        dates.push(new Date(currentDate));
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // For each date, find a base availability and add an exception
+      for (const date of dates) {
+        const dayOfWeek = DAYS_OF_WEEK[date.getDay()];
+        
+        // Find base availability for this day
+        const baseAvailForDay = uiFormattedAvailability.find(item => {
+          if (item.base.type === 'recurring' && item.base.day === dayOfWeek) {
+            return true;
+          }
+          
+          if (item.base.type === 'specific' && item.base.date) {
+            const baseDate = new Date(item.base.date);
+            return baseDate.toDateString() === date.toDateString();
+          }
+          
+          return false;
+        });
+        
+        if (!baseAvailForDay) {
+          console.warn(`No availability set for ${format(date, 'EEEE, MMMM d')}. Skipping.`);
+          continue;
+        }
+        
+        // Add exception for this date
+        await addAvailabilityException({
+          baseAvailabilityId: baseAvailForDay.base.id,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          reason: data.reason,
+          isSpecificDate: true,
+          specificDate: date
+        });
+      }
+      
+      await refreshAvailability();
+      
+      toast({
         title: "Time off saved",
-        description: "Your time off has been added successfully.",
+        description: `Your time off has been added for the selected date range.`,
       });
     } catch (err) {
       console.error('Error saving time off:', err);
@@ -476,10 +589,16 @@ export default function AvailabilityPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Availability</h1>
-        <Button onClick={() => setIsBaseDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Availability
-        </Button>
+        <div className="flex space-x-2">
+          <Button onClick={() => setIsTimeOffManagerOpen(true)} variant="outline">
+            <Clock className="h-4 w-4 mr-2" />
+            Manage Time Off
+          </Button>
+          <Button onClick={() => setIsBaseDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Availability
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="weekly" className="space-y-6">
@@ -510,12 +629,13 @@ export default function AvailabilityPage() {
                 ) : (
                   <WeeklyView 
                     hierarchicalAvailability={uiFormattedAvailability}
-                    onAddException={(baseId, baseStartTime, baseEndTime) => {
+                    onAddException={(baseId: string, baseStartTime: string, baseEndTime: string, specificDate?: Date) => {
                       setExceptionDialogState({
                         isOpen: true,
                         baseId,
                         baseStartTime,
-                        baseEndTime
+                        baseEndTime,
+                        specificDate
                       });
                     }}
                     onDeleteBase={handleDeleteBase}
@@ -836,6 +956,7 @@ export default function AvailabilityPage() {
         baseId={exceptionDialogState.baseId}
         baseStartTime={exceptionDialogState.baseStartTime}
         baseEndTime={exceptionDialogState.baseEndTime}
+        specificDate={exceptionDialogState.specificDate}
         onSubmit={onSubmitException}
       />
       
@@ -853,40 +974,16 @@ export default function AvailabilityPage() {
         newSlot={overlapDialogState.newSlot}
         existingSlot={overlapDialogState.existingSlot}
         mergedSlot={overlapDialogState.mergedSlot}
-        onMerge={async () => {
-          try {
-            await overlapDialogState.onMerge();
-            await refreshAvailability();
-            toast({
-              title: "Availability merged",
-              description: "Your availability has been successfully merged.",
-            });
-          } catch (error) {
-            console.error('Error merging availability:', error);
-            toast({
-              variant: "destructive",
-              title: "Error merging availability",
-              description: error instanceof Error ? error.message : "An unknown error occurred",
-            });
-          }
-        }}
-        onReplace={async () => {
-          try {
-            await overlapDialogState.onReplace();
-            await refreshAvailability();
-            toast({
-              title: "Availability replaced",
-              description: "Your availability has been successfully replaced.",
-            });
-          } catch (error) {
-            console.error('Error replacing availability:', error);
-            toast({
-              variant: "destructive",
-              title: "Error replacing availability",
-              description: error instanceof Error ? error.message : "An unknown error occurred",
-            });
-          }
-        }}
+        onMerge={overlapDialogState.onMerge}
+        onReplace={overlapDialogState.onReplace}
+      />
+
+      {/* Time Off Manager */}
+      <TimeOffManager
+        isOpen={isTimeOffManagerOpen}
+        onOpenChange={setIsTimeOffManagerOpen}
+        onSubmitRecurring={onSubmitRecurringTimeOff}
+        onSubmitOneTime={onSubmitOneTimeTimeOff}
       />
     </div>
   );

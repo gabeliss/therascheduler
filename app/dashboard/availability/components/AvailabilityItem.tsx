@@ -2,16 +2,16 @@ import React from 'react';
 import { Clock, Trash2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './ui/Accordion';
-import Badge from './ui/Badge';
 import { formatTime } from '../utils/time-utils';
 import { HierarchicalItem } from '../utils/types';
 
 interface AvailabilityItemProps {
   item: HierarchicalItem;
-  onAddException: (baseId: string, baseStartTime: string, baseEndTime: string) => void;
+  onAddException: (baseId: string, baseStartTime: string, baseEndTime: string, specificDate?: Date) => void;
   onDeleteBase: (id: string) => void;
   onDeleteException: (id: string) => void;
   formatDate: (dateString: string | undefined) => string;
+  showDateBadge?: boolean;
 }
 
 const AvailabilityItem = ({
@@ -19,7 +19,8 @@ const AvailabilityItem = ({
   onAddException,
   onDeleteBase,
   onDeleteException,
-  formatDate
+  formatDate,
+  showDateBadge = false
 }: AvailabilityItemProps) => {
   return (
     <Accordion className="mb-4 border rounded-md overflow-hidden">
@@ -27,9 +28,6 @@ const AvailabilityItem = ({
         <AccordionTrigger className="px-4 py-3 hover:bg-gray-50">
           <div className="flex flex-col items-start">
             <div className="flex items-center">
-              <Badge variant="outline" className="mr-2">
-                {item.base.type === 'recurring' ? item.base.day : formatDate(item.base.date)}
-              </Badge>
               <span>
                 {formatTime(item.base.start_time)} - {formatTime(item.base.end_time)}
               </span>
@@ -61,7 +59,7 @@ const AvailabilityItem = ({
                 }}
               >
                 <Plus className="h-4 w-4 mr-1" />
-                Add Time Off
+                Add Recurring Time Off
               </Button>
             </div>
             

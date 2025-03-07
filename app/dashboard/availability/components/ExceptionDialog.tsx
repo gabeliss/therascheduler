@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Form,
@@ -28,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { TIME_OPTIONS } from '../utils/time-utils';
+import { format } from 'date-fns';
 
 interface ExceptionDialogProps {
   isOpen: boolean;
@@ -35,6 +37,7 @@ interface ExceptionDialogProps {
   baseId: string | null;
   baseStartTime: string;
   baseEndTime: string;
+  specificDate?: Date;
   onSubmit: (data: ExceptionFormValues) => Promise<void>;
 }
 
@@ -43,7 +46,8 @@ const ExceptionDialog = ({
   onOpenChange, 
   baseId, 
   baseStartTime, 
-  baseEndTime, 
+  baseEndTime,
+  specificDate,
   onSubmit 
 }: ExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,8 +56,8 @@ const ExceptionDialog = ({
   const form = useForm<ExceptionFormValues>({
     resolver: zodResolver(refinedExceptionSchema),
     defaultValues: {
-      startTime: baseStartTime,
-      endTime: baseEndTime,
+      startTime: '12:00', // Default to 12:00 PM (noon)
+      endTime: '12:00',   // Default to 12:00 PM (noon)
       reason: '',
     },
   });
@@ -78,11 +82,23 @@ const ExceptionDialog = ({
     }
   };
 
+  // Format the date for display
+  const formattedDate = specificDate 
+    ? format(specificDate, 'EEEE, MMMM d, yyyy')
+    : null;
+
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Time Off</DialogTitle>
+          <DialogTitle>
+            {formattedDate ? `Block Time on ${formattedDate}` : 'Add Time Off'}
+          </DialogTitle>
+          {formattedDate && (
+            <DialogDescription>
+              This will only block time for this specific date.
+            </DialogDescription>
+          )}
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -101,7 +117,7 @@ const ExceptionDialog = ({
                         <SelectValue placeholder="Select start time" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent className="max-h-[200px] overflow-y-auto">
                       {TIME_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
@@ -128,7 +144,7 @@ const ExceptionDialog = ({
                         <SelectValue placeholder="Select end time" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent className="max-h-[200px] overflow-y-auto">
                       {TIME_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
@@ -154,15 +170,15 @@ const ExceptionDialog = ({
               )}
             />
             {error && <div className="text-red-500 text-sm">{error}</div>}
-            <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
+            <DialogFooter className="w-full">
+              <Button type="submit" disabled={isSubmitting} className="w-full">
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Saving...
                   </>
                 ) : (
-                  'Save Time Off'
+                  formattedDate ? 'Block Time' : 'Save Time Off'
                 )}
               </Button>
             </DialogFooter>

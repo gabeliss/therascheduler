@@ -183,11 +183,17 @@ export function useHierarchicalAvailability() {
     startTime,
     endTime,
     reason,
+    isSpecificDate = false,
+    specificDate,
+    isRecurring = false
   }: {
     baseAvailabilityId: string;
     startTime: string;
     endTime: string;
     reason?: string;
+    isSpecificDate?: boolean;
+    specificDate?: Date;
+    isRecurring?: boolean;
   }) {
     try {
       // Check if the exception is within the base availability time range
@@ -216,6 +222,53 @@ export function useHierarchicalAvailability() {
 
       if (hasOverlap) {
         throw new Error('This exception overlaps with an existing exception. Please choose a different time.');
+      }
+
+      // If this is for a specific date, we need to create a new base availability for that date
+      if (isSpecificDate && specificDate) {
+        console.log('Creating specific date exception for:', specificDate);
+        
+        // Format the date as YYYY-MM-DD
+        const formattedDate = specificDate.toISOString().split('T')[0];
+        
+        // Get the day of week (0-6, where 0 is Sunday)
+        const dayOfWeek = specificDate.getDay();
+        
+        // Check if there's already a specific date availability for this date
+        const { data: existingSpecificAvail, error: checkError } = await supabase
+          .from('base_availability')
+          .select('*')
+          .eq('therapist_id', baseAvailability.therapist_id)
+          .eq('is_recurring', false)
+          .eq('specific_date', formattedDate);
+          
+        if (checkError) throw checkError;
+        
+        // If there's already a specific availability for this date, use that
+        if (existingSpecificAvail && existingSpecificAvail.length > 0) {
+          // Use the existing specific availability
+          baseAvailabilityId = existingSpecificAvail[0].id;
+        } else {
+          // Create a new specific date availability
+          const { data: newSpecificAvail, error: insertError } = await supabase
+            .from('base_availability')
+            .insert({
+              therapist_id: baseAvailability.therapist_id,
+              day_of_week: dayOfWeek,
+              start_time: baseAvailability.start_time,
+              end_time: baseAvailability.end_time,
+              is_recurring: false,
+              specific_date: formattedDate
+            })
+            .select()
+            .single();
+            
+          if (insertError) throw insertError;
+          if (!newSpecificAvail) throw new Error('Failed to create specific date availability.');
+          
+          // Use the new specific availability
+          baseAvailabilityId = newSpecificAvail.id;
+        }
       }
 
       const exceptionData = {

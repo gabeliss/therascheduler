@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getWeekDates } from '../utils/time-utils';
 import AvailabilityItem from './AvailabilityItem';
@@ -8,7 +8,7 @@ import { HierarchicalItem } from '../utils/types';
 
 interface WeeklyViewProps {
   hierarchicalAvailability: HierarchicalItem[];
-  onAddException: (baseId: string, baseStartTime: string, baseEndTime: string) => void;
+  onAddException: (baseId: string, baseStartTime: string, baseEndTime: string, specificDate?: Date) => void;
   onDeleteBase: (id: string) => void;
   onDeleteException: (id: string) => void;
   formatDate: (dateString: string | undefined) => string;
@@ -77,17 +77,57 @@ const WeeklyView = ({
             return false;
           });
 
+          // Group availabilities by time range to consolidate recurring and specific
+          const groupedAvailability: { [key: string]: HierarchicalItem[] } = {};
+          
+          dayAvailability.forEach(item => {
+            const timeKey = `${item.base.start_time}-${item.base.end_time}`;
+            if (!groupedAvailability[timeKey]) {
+              groupedAvailability[timeKey] = [];
+            }
+            groupedAvailability[timeKey].push(item);
+          });
+
+          // For each time range, prioritize specific date over recurring
+          const consolidatedAvailability: HierarchicalItem[] = Object.values(groupedAvailability).map(items => {
+            // If there's a specific date availability, use that one
+            const specificItem = items.find(item => item.base.type === 'specific');
+            if (specificItem) return specificItem;
+            
+            // Otherwise use the recurring one
+            return items[0];
+          });
+
           return (
             <div key={weekDay.dayName} className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b">
+              <div className="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
                 <h3 className="font-medium">
                   {weekDay.dayName}, {format(weekDay.date, 'MMMM d')}
                 </h3>
+                {dayAvailability.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Find the first availability for this day to use as a base
+                      const firstAvail = dayAvailability[0];
+                      onAddException(
+                        firstAvail.base.id, 
+                        firstAvail.base.start_time, 
+                        firstAvail.base.end_time,
+                        weekDay.date
+                      );
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Block Time
+                  </Button>
+                )}
               </div>
               <div className="p-4">
-                {dayAvailability.length > 0 ? (
+                {consolidatedAvailability.length > 0 ? (
                   <div className="space-y-2">
-                    {dayAvailability.map((item) => (
+                    {consolidatedAvailability.map((item) => (
                       <AvailabilityItem
                         key={item.base.id}
                         item={item}
