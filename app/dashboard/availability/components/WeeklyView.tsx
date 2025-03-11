@@ -1,13 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { format, addDays, startOfWeek, isAfter, isSameDay } from 'date-fns';
+import { format, addDays, startOfWeek, isAfter, isSameDay, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Trash2, Edit } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { formatTime, timeToMinutes } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 export interface WeeklyViewProps {
   availability: TherapistAvailability[];
@@ -18,6 +20,18 @@ export interface WeeklyViewProps {
   formatDate: (dateString: string | undefined) => string;
   onEditException?: (exception: UnifiedAvailabilityException) => void;
   onEditAvailability?: (availability: TherapistAvailability) => void;
+}
+
+// Interface for a time block that can be either availability or time off
+interface TimeBlock {
+  id: string;
+  start_time: string;
+  end_time: string;
+  is_recurring: boolean;
+  type: 'availability' | 'time-off';
+  reason?: string;
+  original: TherapistAvailability | UnifiedAvailabilityException;
+  original_time?: string;
 }
 
 export default function WeeklyView({
@@ -91,6 +105,240 @@ export default function WeeklyView({
       // Sort by start time
       return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
     });
+  };
+
+  // Function to create a unified timeline of availability and time off blocks
+  const createUnifiedTimeline = (
+    availabilitySlots: TherapistAvailability[], 
+    exceptionSlots: UnifiedAvailabilityException[]
+  ): TimeBlock[] => {
+    // Convert availability slots to TimeBlock format
+    const availabilityBlocks: TimeBlock[] = availabilitySlots.map(slot => ({
+      id: slot.id,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      is_recurring: slot.is_recurring,
+      type: 'availability',
+      original: slot
+    }));
+
+    // Handle overlapping time-off blocks (one-time should override recurring)
+    const processedExceptionBlocks: TimeBlock[] = [];
+    
+    // First, sort exceptions by priority (non-recurring first, then by start time)
+    const sortedExceptions = [...exceptionSlots].sort((a, b) => {
+      // Non-recurring exceptions take precedence
+      if (a.is_recurring !== b.is_recurring) {
+        return a.is_recurring ? 1 : -1;
+      }
+      // If both are the same type, sort by start time
+      return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+    });
+    
+    // Process each exception and handle overlaps
+    sortedExceptions.forEach(ex => {
+      const exStartMinutes = timeToMinutes(ex.start_time);
+      const exEndMinutes = timeToMinutes(ex.end_time);
+      
+      // Check for overlaps with already processed exceptions
+      const overlappingBlocks = processedExceptionBlocks.filter(block => {
+        const blockStartMinutes = timeToMinutes(block.start_time);
+        const blockEndMinutes = timeToMinutes(block.end_time);
+        
+        return (
+          (exStartMinutes < blockEndMinutes && exEndMinutes > blockStartMinutes) ||
+          (blockStartMinutes < exEndMinutes && blockEndMinutes > exStartMinutes)
+        );
+      });
+      
+      if (overlappingBlocks.length === 0) {
+        // No overlaps, add the exception as is
+        processedExceptionBlocks.push({
+          id: ex.id,
+          start_time: ex.start_time,
+          end_time: ex.end_time,
+          is_recurring: ex.is_recurring,
+          type: 'time-off',
+          reason: ex.reason,
+          original: ex
+        });
+        return;
+      }
+      
+      // Handle overlaps - for recurring exceptions that overlap with one-time exceptions
+      if (ex.is_recurring) {
+        // If this is a recurring exception and it overlaps with a one-time exception,
+        // we may need to split it or skip it entirely
+        
+        // Check if it's completely covered by any one-time exception
+        const completelyOverlapped = overlappingBlocks.some(block => {
+          const blockStartMinutes = timeToMinutes(block.start_time);
+          const blockEndMinutes = timeToMinutes(block.end_time);
+          return blockStartMinutes <= exStartMinutes && blockEndMinutes >= exEndMinutes;
+        });
+        
+        if (completelyOverlapped) {
+          // Skip this recurring exception as it's completely covered
+          return;
+        }
+        
+        // Split the recurring exception around one-time exceptions
+        let currentStartMinutes = exStartMinutes;
+        let segments: {start: number, end: number}[] = [];
+        
+        // Sort overlapping blocks by start time
+        const sortedOverlaps = [...overlappingBlocks].sort((a, b) => 
+          timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+        );
+        
+        // Create segments for the parts of the recurring exception that don't overlap
+        sortedOverlaps.forEach(block => {
+          const blockStartMinutes = timeToMinutes(block.start_time);
+          const blockEndMinutes = timeToMinutes(block.end_time);
+          
+          // Add segment before this overlap if there's a gap
+          if (currentStartMinutes < blockStartMinutes) {
+            segments.push({
+              start: currentStartMinutes,
+              end: blockStartMinutes
+            });
+          }
+          
+          // Update current start to after this overlap
+          currentStartMinutes = Math.max(currentStartMinutes, blockEndMinutes);
+        });
+        
+        // Add final segment if needed
+        if (currentStartMinutes < exEndMinutes) {
+          segments.push({
+            start: currentStartMinutes,
+            end: exEndMinutes
+          });
+        }
+        
+        // Add each segment as a separate block
+        segments.forEach((segment, index) => {
+          processedExceptionBlocks.push({
+            id: `${ex.id}-split-${index}`,
+            start_time: minutesToTimeString(segment.start),
+            end_time: minutesToTimeString(segment.end),
+            is_recurring: true,
+            type: 'time-off',
+            reason: ex.reason,
+            original: ex
+          });
+        });
+      } else {
+        // For one-time exceptions, they take precedence over recurring ones
+        // Just add them as is
+        processedExceptionBlocks.push({
+          id: ex.id,
+          start_time: ex.start_time,
+          end_time: ex.end_time,
+          is_recurring: ex.is_recurring,
+          type: 'time-off',
+          reason: ex.reason,
+          original: ex
+        });
+      }
+    });
+    
+    // Convert processed exceptions to TimeBlock format
+    const exceptionBlocks = processedExceptionBlocks;
+
+    // If there are no availability blocks, just return the exception blocks
+    if (availabilityBlocks.length === 0) {
+      return exceptionBlocks.sort((a, b) => 
+        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+      );
+    }
+
+    // If there are no exception blocks, just return the availability blocks
+    if (exceptionBlocks.length === 0) {
+      return availabilityBlocks.sort((a, b) => 
+        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+      );
+    }
+
+    // Create a unified timeline by splitting availability blocks around time off blocks
+    let unifiedBlocks: TimeBlock[] = [];
+
+    // Process each availability block
+    availabilityBlocks.forEach(availBlock => {
+      const availStartMinutes = timeToMinutes(availBlock.start_time);
+      const availEndMinutes = timeToMinutes(availBlock.end_time);
+      
+      // Find all overlapping time off blocks
+      const overlappingExceptions = exceptionBlocks.filter(exBlock => {
+        const exStartMinutes = timeToMinutes(exBlock.start_time);
+        const exEndMinutes = timeToMinutes(exBlock.end_time);
+        
+        return (
+          (exStartMinutes >= availStartMinutes && exStartMinutes < availEndMinutes) ||
+          (exEndMinutes > availStartMinutes && exEndMinutes <= availEndMinutes) ||
+          (exStartMinutes <= availStartMinutes && exEndMinutes >= availEndMinutes)
+        );
+      }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+      
+      // If no overlapping exceptions, add the availability block as is
+      if (overlappingExceptions.length === 0) {
+        unifiedBlocks.push(availBlock);
+        return;
+      }
+      
+      // Split the availability block around the time off blocks
+      let currentStartMinutes = availStartMinutes;
+      
+      overlappingExceptions.forEach(exBlock => {
+        const exStartMinutes = timeToMinutes(exBlock.start_time);
+        const exEndMinutes = timeToMinutes(exBlock.end_time);
+        
+        // Add availability block before the time off if there's a gap
+        if (currentStartMinutes < exStartMinutes) {
+          unifiedBlocks.push({
+            ...availBlock,
+            id: `${availBlock.id}-split-${currentStartMinutes}-${exStartMinutes}`,
+            start_time: minutesToTimeString(currentStartMinutes),
+            end_time: minutesToTimeString(exStartMinutes),
+            original_time: `${availBlock.start_time} - ${availBlock.end_time}`
+          });
+        }
+        
+        // Add the time off block
+        unifiedBlocks.push(exBlock);
+        
+        // Update the current start time to after this time off block
+        currentStartMinutes = Math.max(currentStartMinutes, exEndMinutes);
+      });
+      
+      // Add the final availability block after all time off blocks if needed
+      if (currentStartMinutes < availEndMinutes) {
+        unifiedBlocks.push({
+          ...availBlock,
+          id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
+          start_time: minutesToTimeString(currentStartMinutes),
+          end_time: minutesToTimeString(availEndMinutes),
+          original_time: `${availBlock.start_time} - ${availBlock.end_time}`
+        });
+      }
+    });
+    
+    // Sort the unified blocks by start time
+    return unifiedBlocks.sort((a, b) => 
+      timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+    );
+  };
+  
+  // Helper function to convert minutes to time string (HH:MM:SS)
+  const minutesToTimeString = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:00`;
+  };
+  
+  // Function to format time for display (e.g., "08:00:00" -> "8:00 AM")
+  const formatDisplayTime = (timeString: string): string => {
+    return format(new Date(`2000-01-01T${timeString}`), 'h:mm a');
   };
   
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -174,96 +422,203 @@ export default function WeeklyView({
           return true;
         });
         
-        // Combine specific date exceptions with recurring exceptions and sort by start time
-        const dayExceptions = [...specificDateExceptions, ...recurringExceptions].sort((a, b) => {
-          // Sort by start time
-          return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
-        });
+        // Combine specific date exceptions with recurring exceptions
+        const dayExceptions = [...specificDateExceptions, ...recurringExceptions];
+
+        // Create a unified timeline of availability and time off blocks
+        const timelineBlocks = createUnifiedTimeline(dayAvailability, dayExceptions);
 
         return (
-          <div key={day} className="border rounded-lg p-4">
-            <h3 className="text-lg font-semibold mb-4">{formattedDay}</h3>
+          <div key={day} className="border rounded-lg p-4 shadow-sm">
+            <h3 className="text-lg font-semibold mb-3">{formattedDay}</h3>
             
-            {/* Base Availability */}
-            {dayAvailability.length > 0 && (
-              <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Available Hours</h4>
-                {dayAvailability.map(slot => (
-                  <div key={slot.id} className="flex items-center justify-between bg-blue-50 p-2 rounded mb-2">
-                    <span>
-                      {format(new Date(`2000-01-01T${slot.start_time}`), 'h:mm a')} - 
-                      {format(new Date(`2000-01-01T${slot.end_time}`), 'h:mm a')}
-                    </span>
-                    <div className="flex space-x-1">
-                      {onEditAvailability && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onEditAvailability(slot)}
-                          disabled={isPastDate}
-                          title={isPastDate ? "Cannot edit past availability" : "Edit availability"}
-                        >
-                          <Edit className="h-4 w-4 text-blue-500" />
-                        </Button>
+            {timelineBlocks.length > 0 ? (
+              <div className="space-y-1">
+                {timelineBlocks.map((block, blockIndex) => {
+                  // Check if this block is a different type than the previous one
+                  const prevBlock = blockIndex > 0 ? timelineBlocks[blockIndex - 1] : null;
+                  const showDivider = prevBlock && prevBlock.type !== block.type;
+                  
+                  return (
+                    <div key={block.id}>
+                      {showDivider && (
+                        <div className="h-px bg-gray-300 my-2" />
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDeleteAvailability(slot.id)}
-                        disabled={isPastDate}
-                        title={isPastDate ? "Cannot delete past availability" : "Delete availability"}
+                      <div 
+                        className={cn(
+                          "flex items-center justify-between py-2 px-3 rounded-md border-l-4",
+                          block.type === 'availability' 
+                            ? "bg-green-50 border-green-300" 
+                            : "bg-red-50 border-red-300"
+                        )}
                       >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                        <div>
+                          <div className="flex items-center">
+                            <span className={cn(
+                              "font-medium flex items-center",
+                              block.type === 'availability' ? "text-green-700" : "text-red-700"
+                            )}>
+                              {block.type === 'availability' ? (
+                                <Calendar className="h-4 w-4 mr-1 inline" />
+                              ) : (
+                                <Clock className="h-4 w-4 mr-1 inline" />
+                              )}
+                              {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} - 
+                              {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                              
+                              {block.is_recurring && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Repeat className="h-3 w-3 ml-1.5 text-gray-400 inline cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                      <p>Recurring weekly</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-center mt-0.5">
+                            {block.reason && (
+                              <span className="text-gray-600 text-xs">{block.reason}</span>
+                            )}
+                            {block.type === 'availability' && (
+                              <span className="text-green-600 text-xs">Available</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex space-x-1">
+                          {/* Availability actions */}
+                          {block.type === 'availability' && onEditAvailability && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (!block.id.includes('-split-')) {
+                                        onEditAvailability(block.original as TherapistAvailability);
+                                      } else {
+                                        // For split blocks, find the original block in the availability array
+                                        const originalId = block.id.split('-split-')[0];
+                                        const originalBlock = availability.find(a => a.id === originalId);
+                                        if (originalBlock) {
+                                          onEditAvailability(originalBlock);
+                                        }
+                                      }
+                                    }}
+                                    disabled={isPastDate}
+                                    className="hover:bg-green-100 h-8 w-8 p-0"
+                                  >
+                                    {block.id.includes('-split-') ? (
+                                      <Info className="h-4 w-4 text-blue-500" />
+                                    ) : (
+                                      <Edit className="h-4 w-4 text-green-600" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  {block.id.includes('-split-') ? (
+                                    <p>
+                                      This is part of a larger availability block 
+                                      ({block.original_time ? 
+                                        `${formatDisplayTime(block.original_time.split(' - ')[0])} - ${formatDisplayTime(block.original_time.split(' - ')[1])}` : 
+                                        'full day'
+                                      }). 
+                                      Click to edit the original block.
+                                    </p>
+                                  ) : (
+                                    <p>
+                                      {isPastDate 
+                                        ? "Cannot edit past availability" 
+                                        : "Edit availability"
+                                      }
+                                    </p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          
+                          {block.type === 'availability' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      // For split blocks, delete the original
+                                      const originalId = block.id.includes('-split-') 
+                                        ? block.id.split('-split-')[0] 
+                                        : block.id;
+                                      onDeleteAvailability(originalId);
+                                    }}
+                                    disabled={isPastDate}
+                                    className="hover:bg-red-100 h-8 w-8 p-0"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{isPastDate ? "Cannot delete past availability" : "Delete availability"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          
+                          {/* Time-off actions */}
+                          {block.type === 'time-off' && onEditException && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => onEditException(block.original as UnifiedAvailabilityException)}
+                                    disabled={isPastDate}
+                                    className="hover:bg-red-100 h-8 w-8 p-0"
+                                  >
+                                    <Edit className="h-4 w-4 text-blue-500" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{isPastDate ? "Cannot edit past time off" : "Edit time off"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          
+                          {block.type === 'time-off' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => onDeleteException(block.id)}
+                                    disabled={isPastDate}
+                                    className="hover:bg-red-100 h-8 w-8 p-0"
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{isPastDate ? "Cannot delete past time off" : "Delete time off"}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-            )}
-            
-            {/* Recurring Exceptions */}
-            {dayExceptions.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Time Off</h4>
-                {dayExceptions.map(ex => (
-                  <div key={ex.id} className="flex items-center justify-between bg-gray-50 p-2 rounded mb-2">
-                    <div>
-                      <span>
-                        {format(new Date(`2000-01-01T${ex.start_time}`), 'h:mm a')} - 
-                        {format(new Date(`2000-01-01T${ex.end_time}`), 'h:mm a')}
-                      </span>
-                      {ex.reason && (
-                        <span className="ml-2 text-gray-500">({ex.reason})</span>
-                      )}
-                    </div>
-                    <div className="flex space-x-1">
-                      {onEditException && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onEditException(ex)}
-                          disabled={isPastDate}
-                          title={isPastDate ? "Cannot edit past time off" : "Edit time off"}
-                        >
-                          <Edit className="h-4 w-4 text-blue-500" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDeleteException(ex.id)}
-                        disabled={isPastDate}
-                        title={isPastDate ? "Cannot delete past time off" : "Delete time off"}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {dayAvailability.length === 0 && dayExceptions.length === 0 && (
+            ) : (
               <p className="text-gray-500 text-sm">No availability or time off set for this day.</p>
             )}
           </div>
