@@ -12,7 +12,7 @@ export async function GET() {
     console.log('Adding specific_date column to availability table...');
     
     // First, check if the column already exists
-    const { data: columns, error: checkError } = await supabaseAdmin
+    const { error: checkError } = await supabaseAdmin
       .from('availability')
       .select('specific_date')
       .limit(1);

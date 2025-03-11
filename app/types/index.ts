@@ -105,9 +105,11 @@ export interface UnifiedAvailabilityException {
   end_time: string;
   reason?: string;
   is_recurring: boolean;
-  specific_date?: string; // ISO date string (only for specific date exceptions)
+  start_date?: string; // ISO date string (start date for time-off periods)
+  end_date?: string; // ISO date string (end date for time-off periods)
   created_at: string;
   updated_at: string;
+  is_all_day?: boolean; // Indicates if this is an all-day time off
 }
 
 // Combined type for UI representation

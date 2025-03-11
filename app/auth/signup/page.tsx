@@ -43,8 +43,8 @@ export default function SignupPage() {
       setIsLoading(true);
       await signUp(therapistForm.email, therapistForm.password, therapistForm.name);
       router.push('/auth/verification');
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during signup');
+    } catch (err: Error | unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred during signup');
     } finally {
       setIsLoading(false);
     }

@@ -113,14 +113,18 @@ export function useUnifiedAvailability() {
     reason,
     isRecurring,
     dayOfWeek,
-    specificDate,
+    startDate,
+    endDate,
+    isAllDay,
   }: {
     startTime: string;
     endTime: string;
     reason?: string;
     isRecurring: boolean;
     dayOfWeek?: number;
-    specificDate?: string;
+    startDate?: string;
+    endDate?: string;
+    isAllDay?: boolean;
   }) {
     try {
       if (!therapistProfile) {
@@ -152,12 +156,28 @@ export function useUnifiedAvailability() {
         throw new Error('Day of week is required for recurring exceptions');
       }
 
-      if (!isRecurring && !specificDate) {
-        throw new Error('Specific date is required for non-recurring exceptions');
+      if (!isRecurring) {
+        // For non-recurring exceptions, we need start_date and end_date
+        if (!startDate || !endDate) {
+          throw new Error('Both start date and end date are required for non-recurring exceptions');
+        }
+        
+        // Validate that endDate is not before startDate
+        if (new Date(startDate) > new Date(endDate)) {
+          throw new Error('End date must be on or after start date');
+        }
       }
 
       // Check for overlaps
-      const overlaps = checkForOverlaps(startTime, endTime, isRecurring, dayOfWeek, specificDate);
+      const overlaps = checkForOverlaps(
+        startTime, 
+        endTime, 
+        isRecurring, 
+        dayOfWeek, 
+        startDate,
+        endDate
+      );
+      
       if (overlaps) {
         throw new Error('This time range overlaps with an existing exception');
       }
@@ -170,7 +190,9 @@ export function useUnifiedAvailability() {
         end_time: endTime,
         reason,
         is_recurring: isRecurring,
-        specific_date: !isRecurring ? specificDate : null,
+        start_date: !isRecurring ? startDate : null,
+        end_date: !isRecurring ? endDate : null,
+        is_all_day: isAllDay || false,
       };
 
       console.log("Adding exception:", exceptionData);
@@ -203,20 +225,25 @@ export function useUnifiedAvailability() {
     endTime: string,
     isRecurring: boolean,
     dayOfWeek?: number,
-    specificDate?: string
+    startDate?: string,
+    endDate?: string
   ): boolean {
     const startMinutes = timeToMinutes(startTime);
     const endMinutes = timeToMinutes(endTime);
 
     // For specific date exceptions, check if the date is in the past
-    if (!isRecurring && specificDate) {
-      const specificDateObj = new Date(specificDate);
+    if (!isRecurring) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      // If the specific date is in the past, don't allow setting exceptions
-      if (specificDateObj < today) {
-        return true; // Treat as overlap to prevent setting exceptions in the past
+      // Check start date
+      if (startDate) {
+        const startDateObj = new Date(startDate);
+        
+        // If the start date is in the past, don't allow setting exceptions
+        if (startDateObj < today) {
+          return true; // Treat as overlap to prevent setting exceptions in the past
+        }
       }
     }
     
@@ -252,8 +279,20 @@ export function useUnifiedAvailability() {
       // For recurring exceptions, check day of week
       if (isRecurring && exception.day_of_week !== dayOfWeek) return false;
 
-      // For specific date exceptions, check date
-      if (!isRecurring && exception.specific_date !== specificDate) return false;
+      // For non-recurring exceptions
+      if (!isRecurring) {
+        // If we're checking a multi-day exception
+        if (startDate && endDate) {
+          // If the existing exception has start_date and end_date
+          if (exception.start_date && exception.end_date) {
+            // Check if date ranges overlap
+            return (
+              (startDate <= exception.end_date && endDate >= exception.start_date)
+            );
+          }
+          return false;
+        }
+      }
 
       // Check time overlap
       const exStartMinutes = timeToMinutes(exception.start_time);
@@ -325,7 +364,8 @@ export function useUnifiedAvailability() {
     // Find all exceptions that might apply to this date/time
     const applicableExceptions = unifiedAvailability.filter(exception => 
       (exception.is_recurring && exception.day_of_week === dayOfWeek) || 
-      (!exception.is_recurring && exception.specific_date === formattedDate)
+      (!exception.is_recurring && exception.start_date && exception.end_date && 
+       formattedDate >= exception.start_date && formattedDate <= exception.end_date)
     );
     
     if (applicableExceptions.length === 0) return true; // No exceptions, time is available
@@ -348,8 +388,11 @@ export function useUnifiedAvailability() {
     const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
     
     return unifiedAvailability.filter(exception => 
+      // Recurring exceptions for this day of week
       (exception.is_recurring && exception.day_of_week === dayOfWeek) || 
-      (!exception.is_recurring && exception.specific_date === formattedDate)
+      // Non-recurring exceptions where this date falls within the range
+      (!exception.is_recurring && exception.start_date && exception.end_date && 
+       formattedDate >= exception.start_date && formattedDate <= exception.end_date)
     );
   }
 

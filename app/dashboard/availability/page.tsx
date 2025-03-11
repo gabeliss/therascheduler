@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { useTherapistAvailability, TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { BaseAvailabilityFormValues, ExceptionFormValues } from './utils/schemas';
-import { formatDate, formatTime, checkTimeOverlap, DAYS_OF_WEEK } from './utils/time-utils';
+import { formatDate, DAYS_OF_WEEK } from './utils/time-utils';
 import { format } from 'date-fns';
 import BaseAvailabilityForm from './components/BaseAvailabilityForm';
 import OverlapDialog from './components/OverlapDialog';
@@ -30,7 +30,8 @@ export default function AvailabilityPage() {
     addUnifiedException,
     deleteUnifiedException,
     updateUnifiedException,
-    refreshAvailability: refreshExceptions
+    refreshAvailability: refreshExceptions,
+    checkForOverlaps: checkExceptionOverlaps
   } = useUnifiedAvailability();
 
   const {
@@ -39,8 +40,7 @@ export default function AvailabilityPage() {
     error: availabilityError,
     addAvailability,
     deleteAvailability,
-    checkForOverlaps,
-    refreshAvailability
+    checkForOverlaps
   } = useTherapistAvailability();
   
   const [isBaseDialogOpen, setIsBaseDialogOpen] = useState(false);
@@ -55,6 +55,7 @@ export default function AvailabilityPage() {
 
   // State for submitting
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingOverlap, setIsSubmittingOverlap] = useState(false);
 
   // State for overlap data
   const [overlapData, setOverlapData] = useState<{
@@ -87,7 +88,7 @@ export default function AvailabilityPage() {
     overlapDays: string[];
     existingSlots: { day: string, startTime: string, endTime: string }[];
     mergedSlots: { day: string, startTime: string, endTime: string }[];
-  }>({
+  } | null>({
     overlapDays: [],
     existingSlots: [],
     mergedSlots: []
@@ -186,7 +187,7 @@ export default function AvailabilityPage() {
             );
             
             // If there are multiple slots, find the one with the most overlap
-            let bestMatch = existingSlotsForDay[0];
+            const bestMatch = existingSlotsForDay[0];
             
             if (existingSlotsForDay.length > 0) {
               existingSlots.push({
@@ -254,7 +255,7 @@ export default function AvailabilityPage() {
         }
 
         const formattedDate = format(data.date, 'yyyy-MM-dd');
-        const dayOfWeek = data.date.getDay();
+        // We don't need dayOfWeek here
         
         // Check for overlaps with existing specific date availability
         const hasSpecificOverlap = availability.some(slot => {
@@ -348,15 +349,26 @@ export default function AvailabilityPage() {
   const onSubmitUnifiedException = async (data: ExceptionFormValues) => {
     try {
       // For specific date exceptions, check if the date is in the past
-      if (!data.isRecurring && data.specificDate) {
-        const specificDateObj = new Date(data.specificDate);
+      if (!data.isRecurring) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        if (specificDateObj < today) {
+        // Check startDate
+        if (data.startDate) {
+          const startDateObj = new Date(data.startDate);
+          
+          if (startDateObj < today) {
+            toast({
+              title: "Cannot set time off in the past",
+              description: "Please select a current or future date.",
+              variant: "destructive"
+            });
+            return;
+          }
+        } else {
           toast({
-            title: "Cannot set time off in the past",
-            description: "Please select a current or future date.",
+            title: "Missing date information",
+            description: "Please select start and end dates for your time off.",
             variant: "destructive"
           });
           return;
@@ -405,46 +417,37 @@ export default function AvailabilityPage() {
             endTime: mergedSlot.endTime
           });
         }
-      } else if (!data.isRecurring && data.specificDate) {
-        // Check for specific date time off overlaps
-        const specificDate = new Date(data.specificDate);
-        const dayName = format(specificDate, 'EEEE');
-        
-        // Find existing specific date time off
-        const existingSpecificTimeOff = unifiedAvailability.filter(
-          ex => !ex.is_recurring && ex.specific_date === data.specificDate
-        );
-        
-        if (existingSpecificTimeOff.length > 0) {
-          hasOverlap = true;
-          overlappingDays.push(dayName);
+      } else if (!data.isRecurring) {
+        // Handle multi-day time-offs
+        if (data.startDate && data.endDate) {
+          // For multi-day time-offs, we'll just check if there are any overlaps
+          // without showing the merge dialog, as merging would be more complex
           
-          // Use the first slot as the existing slot
-          const bestMatch = existingSpecificTimeOff[0];
-          
-          existingSlots.push({
-            day: dayName,
-            startTime: bestMatch.start_time,
-            endTime: bestMatch.end_time
-          });
-          
-          // Calculate merged slot
-          const mergedSlot = calculateMergedTimeOffSlot(
+          const hasOverlap = checkExceptionOverlaps(
             data.startTime,
             data.endTime,
-            bestMatch.start_time,
-            bestMatch.end_time
+            false,
+            undefined,
+            data.startDate,
+            data.endDate
           );
           
-          mergedSlots.push({
-            day: dayName,
-            startTime: mergedSlot.startTime,
-            endTime: mergedSlot.endTime
+          if (hasOverlap) {
+            toast({
+              title: "Overlapping time off",
+              description: "This time range overlaps with existing time off. Please choose a different time range.",
+              variant: "destructive"
+            });
+            return;
+          }
+        } else {
+          toast({
+            title: "Missing date information",
+            description: "Please select start and end dates for your time off.",
+            variant: "destructive"
           });
+          return;
         }
-        
-        // For specific date vs recurring conflicts, we don't need to show the dialog
-        // Specific date time off always overrides recurring time off
       }
       
       // If there are overlaps, show the overlap dialog
@@ -460,7 +463,16 @@ export default function AvailabilityPage() {
       }
       
       // If no overlaps, add the time off exception
-      await addUnifiedException(data);
+      await addUnifiedException({
+        startTime: data.startTime,
+        endTime: data.endTime,
+        reason: data.reason,
+        isRecurring: data.isRecurring,
+        dayOfWeek: data.dayOfWeek,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        isAllDay: data.isAllDay
+      });
       
       toast({
         title: "Time off added",
@@ -575,6 +587,153 @@ export default function AvailabilityPage() {
     }
   };
 
+  // Handle time off overlap confirmation
+  const handleTimeOffOverlapConfirm = async (action: 'replace' | 'merge') => {
+    try {
+      if (!timeOffOverlapData || !timeOffOverlapData.formData) return;
+      
+      setIsSubmittingOverlap(true);
+      
+      if (action === 'replace') {
+        // Replace existing time off with new time off
+        if (timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.dayOfWeek !== undefined) {
+          // For recurring time off
+          // Find existing recurring time off for this day
+          const existingTimeOff = unifiedAvailability.filter(
+            ex => ex.is_recurring && ex.day_of_week === timeOffOverlapData.formData!.dayOfWeek
+          );
+          
+          // Delete existing slots
+          for (const ex of existingTimeOff) {
+            await deleteUnifiedException(ex.id);
+          }
+          
+          // Wait a moment to ensure the deletion is processed
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add new time off
+          await addUnifiedException({
+            startTime: timeOffOverlapData.formData.startTime,
+            endTime: timeOffOverlapData.formData.endTime,
+            reason: timeOffOverlapData.formData.reason,
+            isRecurring: timeOffOverlapData.formData.isRecurring,
+            dayOfWeek: timeOffOverlapData.formData.dayOfWeek,
+            startDate: timeOffOverlapData.formData.startDate,
+            endDate: timeOffOverlapData.formData.endDate,
+            isAllDay: timeOffOverlapData.formData.isAllDay || false
+          });
+        } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.startDate && timeOffOverlapData.formData.endDate) {
+          // For non-recurring time off
+          // Find existing time off that overlaps with the date range
+          const existingTimeOff = unifiedAvailability.filter(ex => 
+            !ex.is_recurring && 
+            ex.start_date && ex.end_date && 
+            timeOffOverlapData.formData!.startDate && 
+            timeOffOverlapData.formData!.endDate && 
+            ex.start_date <= timeOffOverlapData.formData!.endDate && 
+            ex.end_date >= timeOffOverlapData.formData!.startDate
+          );
+          
+          // Delete existing specific date slots
+          for (const ex of existingTimeOff) {
+            await deleteUnifiedException(ex.id);
+          }
+          
+          // Wait a moment to ensure the deletion is processed
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add new time off
+          await addUnifiedException({
+            startTime: timeOffOverlapData.formData.startTime,
+            endTime: timeOffOverlapData.formData.endTime,
+            reason: timeOffOverlapData.formData.reason,
+            isRecurring: timeOffOverlapData.formData.isRecurring,
+            dayOfWeek: timeOffOverlapData.formData.dayOfWeek,
+            startDate: timeOffOverlapData.formData.startDate,
+            endDate: timeOffOverlapData.formData.endDate,
+            isAllDay: timeOffOverlapData.formData.isAllDay || false
+          });
+        }
+      } else if (action === 'merge') {
+        // Merge existing time off with new time off
+        if (timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.dayOfWeek !== undefined) {
+          // For recurring time off
+          // Find the merged slot
+          const mergedSlot = timeOffOverlapData.mergedSlots[0];
+          
+          // Find existing recurring time off for this day
+          const existingTimeOff = unifiedAvailability.filter(
+            ex => ex.is_recurring && ex.day_of_week === timeOffOverlapData.formData!.dayOfWeek
+          );
+          
+          // Delete existing slots
+          for (const ex of existingTimeOff) {
+            await deleteUnifiedException(ex.id);
+          }
+          
+          // Wait a moment to ensure the deletion is processed
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add merged time off
+          await addUnifiedException({
+            ...timeOffOverlapData.formData,
+            startTime: mergedSlot.startTime,
+            endTime: mergedSlot.endTime,
+            isAllDay: timeOffOverlapData.formData.isAllDay || false
+          });
+        } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.startDate && timeOffOverlapData.formData.endDate) {
+          // For non-recurring time off
+          // Find the merged slot
+          const mergedSlot = timeOffOverlapData.mergedSlots[0];
+          
+          // Find existing time off that overlaps with the date range
+          const existingTimeOff = unifiedAvailability.filter(ex => 
+            !ex.is_recurring && 
+            ex.start_date && ex.end_date && 
+            timeOffOverlapData.formData!.startDate && 
+            timeOffOverlapData.formData!.endDate && 
+            ex.start_date <= timeOffOverlapData.formData!.endDate && 
+            ex.end_date >= timeOffOverlapData.formData!.startDate
+          );
+          
+          // Delete existing specific date slots
+          for (const ex of existingTimeOff) {
+            await deleteUnifiedException(ex.id);
+          }
+          
+          // Wait a moment to ensure the deletion is processed
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Add merged time off
+          await addUnifiedException({
+            ...timeOffOverlapData.formData,
+            startTime: mergedSlot.startTime,
+            endTime: mergedSlot.endTime,
+            isAllDay: timeOffOverlapData.formData.isAllDay || false
+          });
+        }
+      }
+      
+      // Close the dialog
+      setShowTimeOffOverlapDialog(false);
+      setTimeOffOverlapData(null);
+      
+      toast({
+        title: "Time off updated",
+        description: "Your time off has been successfully updated.",
+      });
+    } catch (error) {
+      console.error('Error handling time off overlap:', error);
+      toast({
+        title: "Error updating time off",
+        description: error instanceof Error ? error.message : 'An unknown error occurred',
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmittingOverlap(false);
+    }
+  };
+
   // If auth is still loading, show a loading spinner
   if (authLoading) {
     return (
@@ -633,11 +792,11 @@ export default function AvailabilityPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Availability</h1>
         <div className="flex gap-2">
-          <Button onClick={() => setIsBaseDialogOpen(true)}>
+          <Button onClick={() => setIsBaseDialogOpen(true)} disabled={isSubmitting}>
             <Plus className="h-4 w-4 mr-2" />
             Add Availability
           </Button>
-          <Button variant="outline" onClick={() => setIsTimeOffManagerOpen(true)}>
+          <Button variant="outline" onClick={() => setIsTimeOffManagerOpen(true)} disabled={isSubmittingOverlap}>
             <Clock className="h-4 w-4 mr-2" />
             Manage Time Off
           </Button>
@@ -662,7 +821,7 @@ export default function AvailabilityPage() {
                   <div className="text-center py-12 border rounded-lg">
                     <h3 className="text-lg font-medium">No availability set</h3>
                     <p className="text-gray-500 mt-2">
-                      Click "Add Availability" to set your schedule.
+                      Click &quot;Add Availability&quot; to set your schedule.
                     </p>
                   </div>
                 ) : (
@@ -696,7 +855,7 @@ export default function AvailabilityPage() {
             <UnifiedCalendarView 
               availability={availability}
               unifiedExceptions={unifiedAvailability} 
-              onTimeSlotClick={(date, timeSlot) => {
+              onTimeSlotClick={(date) => {
                 setUnifiedExceptionDialogState({
                   isOpen: true,
                   specificDate: date
@@ -791,7 +950,7 @@ export default function AvailabilityPage() {
             } else if (overlapData.formData.date) {
               // For specific date availability
               const formattedDate = format(overlapData.formData.date, 'yyyy-MM-dd');
-              const dayOfWeek = overlapData.formData.date.getDay();
+              // We don't need dayOfWeek here
               
               // Find existing specific date availability
               const existingSpecificSlots = availability.filter(
@@ -868,7 +1027,7 @@ export default function AvailabilityPage() {
             } else if (overlapData.formData.date) {
               // For specific date availability
               const formattedDate = format(overlapData.formData.date, 'yyyy-MM-dd');
-              const dayOfWeek = overlapData.formData.date.getDay();
+              // We don't need dayOfWeek here
               const dayName = format(overlapData.formData.date, 'EEEE');
               
               // Find the merged slot
@@ -915,163 +1074,25 @@ export default function AvailabilityPage() {
       <OverlapDialog
         isOpen={showTimeOffOverlapDialog}
         onOpenChange={(open) => setShowTimeOffOverlapDialog(open)}
-        day={timeOffOverlapData.overlapDays.join(', ')}
+        day={timeOffOverlapData?.overlapDays?.join(', ') || ''}
         newSlot={{ 
-          startTime: timeOffOverlapData.formData?.startTime || '09:00', 
-          endTime: timeOffOverlapData.formData?.endTime || '17:00' 
+          startTime: timeOffOverlapData?.formData?.startTime || '09:00', 
+          endTime: timeOffOverlapData?.formData?.endTime || '17:00' 
         }}
         existingSlot={{ 
-          startTime: timeOffOverlapData.existingSlots.length > 0 ? timeOffOverlapData.existingSlots[0].startTime : '09:00', 
-          endTime: timeOffOverlapData.existingSlots.length > 0 ? timeOffOverlapData.existingSlots[0].endTime : '17:00' 
+          startTime: (timeOffOverlapData?.existingSlots?.length && timeOffOverlapData.existingSlots[0]?.startTime) || '09:00', 
+          endTime: (timeOffOverlapData?.existingSlots?.length && timeOffOverlapData.existingSlots[0]?.endTime) || '17:00' 
         }}
         mergedSlot={{ 
-          startTime: timeOffOverlapData.mergedSlots.length > 0 ? timeOffOverlapData.mergedSlots[0].startTime : '09:00', 
-          endTime: timeOffOverlapData.mergedSlots.length > 0 ? timeOffOverlapData.mergedSlots[0].endTime : '17:00' 
+          startTime: (timeOffOverlapData?.mergedSlots?.length && timeOffOverlapData.mergedSlots[0]?.startTime) || '09:00', 
+          endTime: (timeOffOverlapData?.mergedSlots?.length && timeOffOverlapData.mergedSlots[0]?.endTime) || '17:00' 
         }}
         onCancel={() => {
           // Do nothing, just close the dialog
           setShowTimeOffOverlapDialog(false);
         }}
-        onReplace={async () => {
-          if (!timeOffOverlapData.formData) return;
-          
-          try {
-            setIsSubmitting(true);
-            
-            if (timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.dayOfWeek !== undefined) {
-              // For recurring time off, delete existing slots for the selected day
-              // Find existing recurring time off for this day
-              const existingTimeOff = unifiedAvailability.filter(
-                ex => ex.is_recurring && ex.day_of_week === timeOffOverlapData.formData!.dayOfWeek
-              );
-              
-              // Delete existing slots
-              for (const ex of existingTimeOff) {
-                await deleteUnifiedException(ex.id);
-              }
-              
-              // Wait a moment to ensure the deletion is processed
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Add new time off
-              await addUnifiedException(timeOffOverlapData.formData);
-            } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.specificDate) {
-              // For specific date time off
-              // Find existing specific date time off
-              const existingSpecificTimeOff = unifiedAvailability.filter(
-                ex => !ex.is_recurring && ex.specific_date === timeOffOverlapData.formData!.specificDate
-              );
-              
-              // Delete existing specific date slots
-              for (const ex of existingSpecificTimeOff) {
-                await deleteUnifiedException(ex.id);
-              }
-              
-              // Wait a moment to ensure the deletion is processed
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Add new specific date time off
-              await addUnifiedException(timeOffOverlapData.formData);
-            }
-            
-            toast({
-              title: "Time off updated",
-              description: "Your time off has been successfully updated.",
-            });
-            
-            // Close the dialog
-            setShowTimeOffOverlapDialog(false);
-            
-            // Refresh the data
-            await refreshExceptions();
-          } catch (error) {
-            console.error('Error updating time off:', error);
-            toast({
-              title: "Error updating time off",
-              description: error instanceof Error ? error.message : 'An unknown error occurred',
-              variant: "destructive"
-            });
-          } finally {
-            setIsSubmitting(false);
-          }
-        }}
-        onMerge={async () => {
-          if (!timeOffOverlapData.formData || timeOffOverlapData.mergedSlots.length === 0) return;
-          
-          try {
-            setIsSubmitting(true);
-            
-            if (timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.dayOfWeek !== undefined) {
-              // For recurring time off, delete existing slots and add merged ones
-              // Find the merged slot for this day
-              const mergedSlot = timeOffOverlapData.mergedSlots[0];
-              
-              // Find existing recurring time off for this day
-              const existingTimeOff = unifiedAvailability.filter(
-                ex => ex.is_recurring && ex.day_of_week === timeOffOverlapData.formData!.dayOfWeek
-              );
-              
-              // Delete existing slots
-              for (const ex of existingTimeOff) {
-                await deleteUnifiedException(ex.id);
-              }
-              
-              // Wait a moment to ensure the deletion is processed
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Add merged time off
-              await addUnifiedException({
-                ...timeOffOverlapData.formData,
-                startTime: mergedSlot.startTime,
-                endTime: mergedSlot.endTime
-              });
-            } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.specificDate) {
-              // For specific date time off
-              // Find the merged slot
-              const mergedSlot = timeOffOverlapData.mergedSlots[0];
-              
-              // Find existing specific date time off
-              const existingSpecificTimeOff = unifiedAvailability.filter(
-                ex => !ex.is_recurring && ex.specific_date === timeOffOverlapData.formData!.specificDate
-              );
-              
-              // Delete existing specific date slots
-              for (const ex of existingSpecificTimeOff) {
-                await deleteUnifiedException(ex.id);
-              }
-              
-              // Wait a moment to ensure the deletion is processed
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Add merged specific date time off
-              await addUnifiedException({
-                ...timeOffOverlapData.formData,
-                startTime: mergedSlot.startTime,
-                endTime: mergedSlot.endTime
-              });
-            }
-            
-            toast({
-              title: "Time off merged",
-              description: "Your time off has been successfully merged.",
-            });
-            
-            // Close the dialog
-            setShowTimeOffOverlapDialog(false);
-            
-            // Refresh the data
-            await refreshExceptions();
-          } catch (error) {
-            console.error('Error merging time off:', error);
-            toast({
-              title: "Error merging time off",
-              description: error instanceof Error ? error.message : 'An unknown error occurred',
-              variant: "destructive"
-            });
-          } finally {
-            setIsSubmitting(false);
-          }
-        }}
+        onReplace={() => handleTimeOffOverlapConfirm('replace')}
+        onMerge={() => handleTimeOffOverlapConfirm('merge')}
       />
 
       {/* Edit Time Off Dialog */}

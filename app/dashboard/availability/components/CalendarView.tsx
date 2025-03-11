@@ -96,8 +96,9 @@ export default function CalendarView({ hierarchicalAvailability }: CalendarViewP
     
     // Find base availability for this day (either recurring or specific date)
     const availableSlots = hierarchicalAvailability.filter(ha => 
+      // Check if this slot applies to this date
       (ha.base.is_recurring && ha.base.day_of_week === dayOfWeek) || 
-      (!ha.base.is_recurring && ha.base.specific_date === formattedDate)
+      (!ha.base.is_recurring && ha.base.specific_date && ha.base.specific_date === formattedDate)
     );
     
     if (availableSlots.length === 0) return null;

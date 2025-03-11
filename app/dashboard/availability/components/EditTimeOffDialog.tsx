@@ -68,9 +68,31 @@ const EditTimeOffDialog = ({
 
   if (!exception) return null;
 
-  const title = exception.is_recurring
-    ? `Edit Time Off for ${exception.day_of_week !== undefined ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][exception.day_of_week] : 'Unknown'}s`
-    : `Edit Time Off for ${exception.specific_date ? format(new Date(exception.specific_date + 'T00:00:00'), 'EEEE, MMMM do') : 'Unknown Date'}`;
+  // Generate title based on exception type
+  let title = '';
+  if (exception.is_recurring) {
+    // For recurring exceptions, show the day of week
+    const dayName = exception.day_of_week !== undefined 
+      ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][exception.day_of_week] 
+      : 'Unknown';
+    title = `Edit Time Off for ${dayName}s`;
+  } else {
+    // For non-recurring exceptions, show the date range
+    if (exception.start_date && exception.end_date) {
+      const startDate = new Date(exception.start_date + 'T00:00:00');
+      const endDate = new Date(exception.end_date + 'T00:00:00');
+      
+      // If it's a single day
+      if (exception.start_date === exception.end_date) {
+        title = `Edit Time Off for ${format(startDate, 'EEEE, MMMM do')}`;
+      } else {
+        // For multi-day time-offs
+        title = `Edit Time Off for ${format(startDate, 'MMM do')} - ${format(endDate, 'MMM do, yyyy')}`;
+      }
+    } else {
+      title = 'Edit Time Off for Unknown Date';
+    }
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>

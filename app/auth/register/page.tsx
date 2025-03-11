@@ -15,7 +15,6 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const router = useRouter();
   const { signUp } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -26,16 +25,16 @@ export default function RegisterPage() {
     try {
       await signUp(email, password, name);
       setIsSuccess(true);
-    } catch (err: any) {
+    } catch (err: Error | unknown) {
       console.error('Registration error:', err);
-      if (err.message?.includes('duplicate key')) {
+      if (err instanceof Error && err.message?.includes('duplicate key')) {
         setError('An account with this email already exists.');
-      } else if (err.message?.includes('password')) {
+      } else if (err instanceof Error && err.message?.includes('password')) {
         setError('Password must be at least 6 characters long.');
-      } else if (err.message?.includes('email')) {
+      } else if (err instanceof Error && err.message?.includes('email')) {
         setError('Please enter a valid email address.');
       } else {
-        setError(err.message || 'Failed to create account. Please try again.');
+        setError(err instanceof Error ? err.message || 'Failed to create account. Please try again.' : 'Failed to create account. Please try again.');
       }
     } finally {
       setIsLoading(false);
@@ -49,7 +48,7 @@ export default function RegisterPage() {
           <CardHeader>
             <CardTitle>Check Your Email</CardTitle>
             <CardDescription>
-              We've sent you an email verification link. Please check your email and click the link to verify your account.
+              We&apos;ve sent you an email verification link. Please check your email and click the link to verify your account.
             </CardDescription>
           </CardHeader>
           <CardContent>

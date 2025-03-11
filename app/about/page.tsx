@@ -25,7 +25,7 @@ export default function AboutPage() {
             <ul className="list-disc pl-6 text-gray-700 mb-6 space-y-2">
               <li><span className="font-medium">Simplicity</span> - We believe in creating intuitive tools that require minimal training.</li>
               <li><span className="font-medium">Security</span> - We prioritize the protection of sensitive client information.</li>
-              <li><span className="font-medium">Support</span> - We're committed to providing exceptional customer service.</li>
+              <li><span className="font-medium">Support</span> - We&apos;re committed to providing exceptional customer service.</li>
               <li><span className="font-medium">Innovation</span> - We continuously improve our platform based on user feedback.</li>
             </ul>
           </div>

@@ -32,6 +32,7 @@ interface TimeBlock {
   reason?: string;
   original: TherapistAvailability | UnifiedAvailabilityException;
   original_time?: string;
+  is_all_day?: boolean;
 }
 
 export default function WeeklyView({
@@ -77,11 +78,15 @@ export default function WeeklyView({
     today.setHours(0, 0, 0, 0);
     const isPastDate = date < today;
     
-    // Get specific date exceptions
-    const specificDateExceptions = exceptions.filter(ex => 
-      !ex.is_recurring && 
-      ex.specific_date === formattedDate
-    );
+    // Get specific date exceptions (including multi-day exceptions)
+    const specificDateExceptions = exceptions.filter(ex => {
+      if (ex.is_recurring) return false;
+      
+      // Check if this date falls within the date range
+      return ex.start_date && ex.end_date && 
+             formattedDate >= ex.start_date && 
+             formattedDate <= ex.end_date;
+    });
     
     // Get recurring exceptions
     // Only show recurring exceptions for dates after they were created
@@ -160,7 +165,8 @@ export default function WeeklyView({
           is_recurring: ex.is_recurring,
           type: 'time-off',
           reason: ex.reason,
-          original: ex
+          original: ex,
+          is_all_day: ex.is_all_day
         });
         return;
       }
@@ -225,7 +231,8 @@ export default function WeeklyView({
             is_recurring: true,
             type: 'time-off',
             reason: ex.reason,
-            original: ex
+            original: ex,
+            is_all_day: ex.is_all_day
           });
         });
       } else {
@@ -238,7 +245,8 @@ export default function WeeklyView({
           is_recurring: ex.is_recurring,
           type: 'time-off',
           reason: ex.reason,
-          original: ex
+          original: ex,
+          is_all_day: ex.is_all_day
         });
       }
     });
@@ -300,7 +308,8 @@ export default function WeeklyView({
             id: `${availBlock.id}-split-${currentStartMinutes}-${exStartMinutes}`,
             start_time: minutesToTimeString(currentStartMinutes),
             end_time: minutesToTimeString(exStartMinutes),
-            original_time: `${availBlock.start_time} - ${availBlock.end_time}`
+            original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+            is_all_day: availBlock.is_all_day
           });
         }
         
@@ -318,7 +327,8 @@ export default function WeeklyView({
           id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
           start_time: minutesToTimeString(currentStartMinutes),
           end_time: minutesToTimeString(availEndMinutes),
-          original_time: `${availBlock.start_time} - ${availBlock.end_time}`
+          original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+          is_all_day: availBlock.is_all_day
         });
       }
     });
@@ -374,12 +384,16 @@ export default function WeeklyView({
         
         // Check for specific date availability first
         const specificDateAvailability = availability.filter(
-          slot => !slot.is_recurring && slot.specific_date === formattedDate
+          slot => !slot.is_recurring && 
+                 slot.specific_date === formattedDate
         );
         
         // Check for specific date exceptions
         const specificDateExceptions = exceptions.filter(
-          ex => !ex.is_recurring && ex.specific_date === formattedDate
+          ex => !ex.is_recurring && 
+               ex.start_date && ex.end_date && 
+               formattedDate >= ex.start_date && 
+               formattedDate <= ex.end_date
         );
         
         // If there are specific date availability entries, use only those
@@ -463,8 +477,14 @@ export default function WeeklyView({
                               ) : (
                                 <Clock className="h-4 w-4 mr-1 inline" />
                               )}
-                              {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} - 
-                              {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                              {block.is_all_day ? (
+                                "All Day"
+                              ) : (
+                                <>
+                                  {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} - 
+                                  {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                                </>
+                              )}
                               
                               {block.is_recurring && (
                                 <TooltipProvider>

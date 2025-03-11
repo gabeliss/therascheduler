@@ -65,9 +65,23 @@ const EditAvailabilityDialog = ({
 
   if (!availability) return null;
 
-  const title = availability.is_recurring
-    ? `Edit Availability for ${availability.day_of_week !== undefined ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][availability.day_of_week] : 'Unknown'}s`
-    : `Edit Availability for ${availability.specific_date ? format(new Date(availability.specific_date + 'T00:00:00'), 'EEEE, MMMM do') : 'Unknown Date'}`;
+  // Generate title based on availability type
+  let title = '';
+  if (availability.is_recurring) {
+    // For recurring availability, show the day of week
+    const dayName = availability.day_of_week !== undefined 
+      ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][availability.day_of_week]
+      : 'Unknown';
+    title = `Edit Availability for ${dayName}s`;
+  } else {
+    // For non-recurring availability, show the date
+    if (availability.start_date) {
+      const date = new Date(availability.start_date + 'T00:00:00');
+      title = `Edit Availability for ${format(date, 'EEEE, MMMM do')}`;
+    } else {
+      title = 'Edit Availability for Unknown Date';
+    }
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>

@@ -63,12 +63,12 @@ export default function VerificationPage() {
         <h1 className="text-2xl font-bold mb-4">Check Your Email</h1>
         
         <p className="mb-4">
-          We've sent a verification link to {email ? <span className="font-medium">{email}</span> : 'your email address'}.
+          We&apos;ve sent a verification link to {email ? <span className="font-medium">{email}</span> : 'your email address'}.
           Please check your inbox and click the link to verify your account.
         </p>
         
         <p className="text-sm text-gray-500 mb-6">
-          If you don't see the email, check your spam folder.
+          If you don&apos;t see the email, check your spam folder.
         </p>
         
         <div className="space-y-4">

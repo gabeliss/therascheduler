@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
@@ -34,8 +34,8 @@ export default function ClientLoginPage() {
       // TODO: Implement client login
       alert('Client login will be implemented in the next phase');
       router.push('/client/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during login');
+    } catch (err: Error | unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred during login');
     } finally {
       setIsLoading(false);
     }

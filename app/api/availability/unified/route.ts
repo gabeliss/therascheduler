@@ -3,7 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const supabase = createRouteHandlerClient({ cookies });
     
@@ -82,7 +82,9 @@ export async function POST(request: NextRequest) {
         reason, 
         isRecurring, 
         dayOfWeek, 
-        specificDate 
+        startDate,
+        endDate,
+        isAllDay 
       } = data;
       
       // Validate required fields
@@ -100,8 +102,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Day of week is required for recurring exceptions' }, { status: 400 });
       }
       
-      if (!isRecurring && !specificDate) {
-        return NextResponse.json({ error: 'Specific date is required for non-recurring exceptions' }, { status: 400 });
+      if (!isRecurring) {
+        // For non-recurring exceptions, we need either specificDate (legacy) or both startDate and endDate
+        if ((!startDate || !endDate)) {
+          return NextResponse.json({ 
+            error: 'Either specificDate or both startDate and endDate are required for non-recurring exceptions' 
+          }, { status: 400 });
+        }
+        
+        // If both startDate and endDate are provided, validate that endDate is not before startDate
+        if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+          return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 });
+        }
       }
       
       // Check for overlapping exceptions
@@ -121,9 +133,19 @@ export async function POST(request: NextRequest) {
         filteredExceptions = filteredExceptions.filter(
           (ex: UnifiedAvailabilityException) => ex.day_of_week === dayOfWeek
         );
-      } else {
+      } else if (startDate && endDate) {
+        // For multi-day exceptions, check for any overlap in date ranges
         filteredExceptions = filteredExceptions.filter(
-          (ex: UnifiedAvailabilityException) => ex.specific_date === specificDate
+          (ex: UnifiedAvailabilityException) => {
+            // If the existing exception has start_date and end_date
+            if (ex.start_date && ex.end_date) {
+              // Check if date ranges overlap
+              return (
+                (startDate <= ex.end_date && endDate >= ex.start_date)
+              );
+            }
+            return false;
+          }
         );
       }
       
@@ -150,7 +172,9 @@ export async function POST(request: NextRequest) {
           end_time: endTime,
           reason,
           is_recurring: isRecurring,
-          specific_date: !isRecurring ? specificDate : null,
+          start_date: (!isRecurring && startDate) ? startDate : null,
+          end_date: (!isRecurring && endDate) ? endDate : null,
+          is_all_day: isAllDay || false,
         })
         .select()
         .single();

@@ -22,7 +22,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       router.push('/dashboard'); // Redirect to dashboard after successful login
-    } catch (err) {
+    } catch {
       setError('Failed to sign in. Please check your credentials.');
     }
   };
@@ -81,7 +81,7 @@ export default function LoginPage() {
                 Sign In
               </Button>
               <p className="text-sm text-center">
-                Don't have an account?{' '}
+                Don&apos;t have an account?{' '}
                 <Link href="/auth/signup" className="text-primary hover:underline">
                   Sign up
                 </Link>

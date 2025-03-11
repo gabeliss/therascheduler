@@ -26,6 +26,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ExceptionFormValues } from '../utils/schemas';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface TimeOffManagerProps {
   isOpen: boolean;
@@ -52,6 +53,7 @@ export default function TimeOffManager({
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAllDay, setIsAllDay] = useState(false);
   
   const { checkForOverlaps } = useUnifiedAvailability();
   
@@ -61,6 +63,7 @@ export default function TimeOffManager({
     setEndTime('17:00');
     setReason('');
     setError(null);
+    setIsAllDay(false);
     
     if (activeTab === 'recurring') {
       setSelectedDays([1]); // Monday by default
@@ -93,6 +96,33 @@ export default function TimeOffManager({
     }
   };
   
+  // Handle all day checkbox change
+  const handleAllDayChange = (checked: boolean) => {
+    setIsAllDay(checked);
+    if (checked) {
+      setStartTime('00:00');
+      setEndTime('23:45');
+    } else {
+      setStartTime('09:00');
+      setEndTime('17:00');
+    }
+  };
+  
+  // Sort exceptions by date
+  const sortedExceptions = [...exceptions].sort((a, b) => {
+    if (a.is_recurring && !b.is_recurring) return -1;
+    if (!a.is_recurring && b.is_recurring) return 1;
+    
+    if (a.is_recurring && b.is_recurring) {
+      // Sort recurring exceptions by day of week
+      return (a.day_of_week || 0) - (b.day_of_week || 0);
+    } else {
+      // Sort non-recurring exceptions by start date
+      if (!a.start_date || !b.start_date) return 0;
+      return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+    }
+  });
+  
   // Filter exceptions by type
   const recurringExceptions = exceptions.filter(ex => ex.is_recurring);
   const specificExceptions = exceptions.filter(ex => !ex.is_recurring);
@@ -110,8 +140,8 @@ export default function TimeOffManager({
   
   // Sort specific exceptions by date
   const sortedSpecificExceptions = [...specificExceptions].sort((a, b) => {
-    if (!a.specific_date || !b.specific_date) return 0;
-    return new Date(a.specific_date).getTime() - new Date(b.specific_date).getTime();
+    if (!a.start_date || !b.start_date) return 0;
+    return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
   });
   
   // Helper function to get day name
@@ -172,55 +202,46 @@ export default function TimeOffManager({
             reason,
             isRecurring: true,
             dayOfWeek: dayIndex - 1, // Adjust index to match day of week (0-6)
-            specificDate: undefined
+            isAllDay
           });
         }
       } else {
-        // Add time off for each date in the range
+        // Add multi-day time off
         if (!startDate || !endDate) {
           setError('Please select both start and end dates');
           setIsSubmitting(false);
           return;
         }
         
-        // Create an array of dates from startDate to endDate
-        const dates: Date[] = [];
-        let currentDate = new Date(startDate);
+        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
-        while (currentDate <= endDate) {
-          dates.push(new Date(currentDate));
-          currentDate.setDate(currentDate.getDate() + 1);
+        // Check for overlaps for the date range
+        const hasOverlap = checkForOverlaps(
+          startTime,
+          endTime,
+          false,
+          undefined,
+          formattedStartDate,
+          formattedEndDate
+        );
+        
+        if (hasOverlap) {
+          setError(`This time range overlaps with existing time off. Please choose a different time range.`);
+          setIsSubmitting(false);
+          return;
         }
         
-        // Add time off for each date
-        for (const date of dates) {
-          const formattedDate = format(date, 'yyyy-MM-dd');
-          
-          // Check for overlaps for this date
-          const hasOverlap = checkForOverlaps(
-            startTime,
-            endTime,
-            false,
-            undefined,
-            formattedDate
-          );
-          
-          if (hasOverlap) {
-            setError(`This time range overlaps with existing time off on ${format(date, 'EEEE, MMMM do')}. Please choose a different time range.`);
-            setIsSubmitting(false);
-            return;
-          }
-          
-          // Add time off for this date
-          await onAddException({
-            startTime,
-            endTime,
-            reason,
-            isRecurring: false,
-            dayOfWeek: undefined,
-            specificDate: formattedDate
-          });
-        }
+        // Add time off for the date range
+        await onAddException({
+          startTime,
+          endTime,
+          reason,
+          isRecurring: false,
+          startDate: formattedStartDate,
+          endDate: formattedEndDate,
+          isAllDay
+        });
       }
       
       // Reset form
@@ -230,6 +251,7 @@ export default function TimeOffManager({
       setSelectedDays([]);
       setStartDate(undefined);
       setEndDate(undefined);
+      setIsAllDay(false);
       
       // Close the modal
       onOpenChange(false);
@@ -294,13 +316,29 @@ export default function TimeOffManager({
                 </div>
               </div>
               
+              {/* All Day Checkbox */}
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="recurring-all-day" 
+                  checked={isAllDay}
+                  onCheckedChange={handleAllDayChange}
+                />
+                <label
+                  htmlFor="recurring-all-day"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                >
+                  All Day
+                </label>
+              </div>
+              
               {/* Time Selection */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className={`grid grid-cols-2 gap-4 ${isAllDay ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Start Time</label>
                   <Select
                     value={startTime}
                     onValueChange={setStartTime}
+                    disabled={isAllDay}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select start time" />
@@ -319,6 +357,7 @@ export default function TimeOffManager({
                   <Select
                     value={endTime}
                     onValueChange={setEndTime}
+                    disabled={isAllDay}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select end time" />
@@ -384,13 +423,29 @@ export default function TimeOffManager({
                 </div>
               </div>
               
+              {/* All Day Checkbox */}
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="specific-all-day" 
+                  checked={isAllDay}
+                  onCheckedChange={handleAllDayChange}
+                />
+                <label
+                  htmlFor="specific-all-day"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                >
+                  All Day
+                </label>
+              </div>
+              
               {/* Time Selection */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className={`grid grid-cols-2 gap-4 ${isAllDay ? 'opacity-50 pointer-events-none' : ''}`}>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Start Time</label>
                   <Select
                     value={startTime}
                     onValueChange={setStartTime}
+                    disabled={isAllDay}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select start time" />
@@ -409,6 +464,7 @@ export default function TimeOffManager({
                   <Select
                     value={endTime}
                     onValueChange={setEndTime}
+                    disabled={isAllDay}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select end time" />
@@ -438,32 +494,23 @@ export default function TimeOffManager({
         </Tabs>
         
         {error && (
-          <div className="text-red-500 text-sm mt-2">{error}</div>
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+            {error}
+          </div>
         )}
         
-        <DialogFooter className="flex justify-center gap-4 mt-6 sm:justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-            className="min-w-[100px]"
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="min-w-[100px]"
-          >
+          <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving...
               </>
             ) : (
-              'Add Time Off'
+              'Save'
             )}
           </Button>
         </DialogFooter>
