@@ -121,7 +121,12 @@ export const formatDate = (dateString: string | undefined) => {
   if (!dateString) return '';
   
   try {
-    const date = parseISO(dateString);
+    // Parse the date string manually to avoid timezone issues
+    const [year, month, day] = dateString.split('-').map(Number);
+    
+    // Create date with local timezone interpretation (no timezone conversion)
+    const date = new Date(year, month - 1, day);
+    
     return format(date, 'MMM d, yyyy');
   } catch (error) {
     console.error('Error formatting date:', error);

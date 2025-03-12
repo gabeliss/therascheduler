@@ -3,6 +3,7 @@ import { useSupabase } from '@/app/utils/supabase';
 import { UnifiedAvailabilityException, UnifiedAvailability } from '@/app/types/index';
 import { useTherapistProfile } from '@/app/hooks/use-therapist-profile';
 import { useAuth } from '@/app/context/auth-context';
+import { DAYS_OF_WEEK } from '@/app/dashboard/availability/utils/time-utils';
 
 export function useUnifiedAvailability() {
   const [unifiedAvailability, setUnifiedAvailability] = useState<UnifiedAvailabilityException[]>([]);
@@ -182,7 +183,13 @@ export function useUnifiedAvailability() {
         );
         
         if (overlaps) {
-          throw new Error('This time range overlaps with an existing exception');
+          // Provide a more descriptive error message
+          if (isRecurring) {
+            throw new Error(`This time range overlaps with an existing exception on ${DAYS_OF_WEEK[dayOfWeek || 0]}. Please choose a different time.`);
+          } else {
+            const formattedDate = startDate ? new Date(startDate).toLocaleDateString() : 'the selected date';
+            throw new Error(`This time range overlaps with an existing exception on ${formattedDate}. Please choose a different time.`);
+          }
         }
       }
 
@@ -234,6 +241,15 @@ export function useUnifiedAvailability() {
   ): boolean {
     const startMinutes = timeToMinutes(startTime);
     const endMinutes = timeToMinutes(endTime);
+
+    console.log("Checking for overlaps:", {
+      startTime,
+      endTime,
+      isRecurring,
+      dayOfWeek,
+      startDate,
+      endDate
+    });
 
     // For specific date exceptions, check if the date is in the past
     if (!isRecurring) {
@@ -290,9 +306,23 @@ export function useUnifiedAvailability() {
           // If the existing exception has start_date and end_date
           if (exception.start_date && exception.end_date) {
             // Check if date ranges overlap
-            return (
-              (startDate <= exception.end_date && endDate >= exception.start_date)
+            const datesOverlap = (startDate <= exception.end_date && endDate >= exception.start_date);
+            
+            // If dates don't overlap, no need to check times
+            if (!datesOverlap) return false;
+            
+            // If dates overlap, check if times overlap too
+            // Only consider it an overlap if both date ranges AND time ranges overlap
+            const exStartMinutes = timeToMinutes(exception.start_time);
+            const exEndMinutes = timeToMinutes(exception.end_time);
+            
+            const timesOverlap = (
+              (startMinutes >= exStartMinutes && startMinutes < exEndMinutes) ||
+              (endMinutes > exStartMinutes && endMinutes <= exEndMinutes) ||
+              (startMinutes <= exStartMinutes && endMinutes >= exEndMinutes)
             );
+            
+            return datesOverlap && timesOverlap;
           }
           return false;
         }

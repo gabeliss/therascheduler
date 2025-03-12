@@ -141,7 +141,13 @@ export const getWeekDates = (weekOffset = 0) => {
 export const formatDate = (dateString: string | undefined) => {
   if (!dateString) return '';
   try {
-    const date = new Date(dateString);
+    // Parse the date string and handle timezone issues
+    // Add time component and force UTC interpretation to avoid timezone shifts
+    const [year, month, day] = dateString.split('-').map(Number);
+    
+    // Create date with local timezone interpretation (no timezone conversion)
+    const date = new Date(year, month - 1, day);
+    
     return format(date, 'MMMM d, yyyy');
   } catch (error) {
     console.error('Error formatting date:', error);

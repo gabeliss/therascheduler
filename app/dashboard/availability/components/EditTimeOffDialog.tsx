@@ -134,8 +134,12 @@ const EditTimeOffDialog = ({
   } else {
     // For non-recurring exceptions, show the date range
     if (exception.start_date && exception.end_date) {
-      const startDate = new Date(exception.start_date + 'T00:00:00');
-      const endDate = new Date(exception.end_date + 'T00:00:00');
+      // Fix timezone issues by parsing the date correctly
+      const [startYear, startMonth, startDay] = exception.start_date.split('-').map(Number);
+      const [endYear, endMonth, endDay] = exception.end_date.split('-').map(Number);
+      
+      const startDate = new Date(startYear, startMonth - 1, startDay);
+      const endDate = new Date(endYear, endMonth - 1, endDay);
       
       // If it's a single day
       if (exception.start_date === exception.end_date) {

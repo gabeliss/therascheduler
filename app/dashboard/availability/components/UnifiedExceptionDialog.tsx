@@ -215,6 +215,16 @@ const UnifiedExceptionDialog = ({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+            {/* Display error message if there is one */}
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {error}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             {/* Block Weekly Checkbox */}
             <div className="flex items-center space-x-2">
               <Checkbox 
@@ -345,8 +355,6 @@ const UnifiedExceptionDialog = ({
                 </FormItem>
               )}
             />
-            
-            {error && <div className="text-red-500 text-sm">{error}</div>}
             
             <DialogFooter className="flex justify-center gap-4 mt-6 pt-2 sm:justify-center">
               <DialogClose asChild>

@@ -332,7 +332,7 @@ export default function AvailabilityPage() {
           const dayName = DAYS_OF_WEEK[exceptionToDelete.day_of_week || 0];
           toast({
             title: "Time off deleted",
-            description: `Successfully deleted recurring time off for ${dayName}`,
+            description: `Successfully deleted recurring time off for ${dayName}s`,
           });
         } else if (exceptionToDelete.start_date && exceptionToDelete.end_date) {
           const startDate = formatDate(exceptionToDelete.start_date);
