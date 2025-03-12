@@ -20,6 +20,9 @@ export const exceptionSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   isAllDay: z.boolean().default(false),
+  skipToast: z.boolean().optional(),
+  isBatchOperation: z.boolean().optional(),
+  skipOverlapCheck: z.boolean().optional(),
 });
 
 // Define the types after the schemas

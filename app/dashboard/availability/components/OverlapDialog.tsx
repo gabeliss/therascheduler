@@ -14,6 +14,8 @@ interface OverlapDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   day: string;
+  type?: 'availability' | 'time-off' | null;
+  conflictingItems?: any[];
   newSlot: {
     startTime: string;
     endTime: string;
@@ -29,18 +31,22 @@ interface OverlapDialogProps {
   onMerge: () => void;
   onReplace: () => void;
   onCancel?: () => void;
+  onConfirm?: ((action: 'replace' | 'merge') => Promise<void>) | (() => void);
 }
 
 const OverlapDialog = ({
   isOpen,
   onOpenChange,
   day,
+  type,
+  conflictingItems,
   newSlot,
   existingSlot,
   mergedSlot,
   onMerge,
   onReplace,
   onCancel,
+  onConfirm,
 }: OverlapDialogProps) => {
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>

@@ -20,6 +20,7 @@ export interface WeeklyViewProps {
   formatDate: (dateString: string | undefined) => string;
   onEditException?: (exception: UnifiedAvailabilityException) => void;
   onEditAvailability?: (availability: TherapistAvailability) => void;
+  actionButtons?: React.ReactNode;
 }
 
 // Interface for a time block that can be either availability or time off
@@ -43,7 +44,8 @@ export default function WeeklyView({
   onDeleteAvailability,
   formatDate,
   onEditException,
-  onEditAvailability
+  onEditAvailability,
+  actionButtons
 }: WeeklyViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   
@@ -352,11 +354,16 @@ export default function WeeklyView({
   };
   
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
+  
+  // Get the date range for the title
+  const weekStartFormatted = format(weekStart, "MMMM do");
+  const weekEndFormatted = format(addDays(weekStart, 6), "MMMM do, yyyy");
+  const weekRangeTitle = `Weekly Schedule: ${weekStartFormatted} - ${weekEndFormatted}`;
+  
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">Weekly Schedule</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">{weekRangeTitle}</h2>
         <div className="flex space-x-2">
           <Button variant="outline" size="sm" onClick={goToPreviousWeek}>
             <ChevronLeft className="h-4 w-4" />

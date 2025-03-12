@@ -95,21 +95,27 @@ export function useTherapistAvailability() {
 
       console.log('Adding availability with params:', {
         therapist_id: therapistProfile.id,
-        ...params
+        ...params,
+        dayOfWeek_type: typeof params.dayOfWeek,
+        dayOfWeek_value: params.dayOfWeek,
+        isRecurring_type: typeof params.isRecurring,
+        isRecurring_value: params.isRecurring
       });
+      
+      const insertData = {
+        therapist_id: therapistProfile.id,
+        start_time: params.startTime,
+        end_time: params.endTime,
+        is_recurring: params.isRecurring,
+        day_of_week: params.isRecurring ? params.dayOfWeek : null,
+        specific_date: !params.isRecurring ? params.specificDate : null,
+      };
+      
+      console.log('Final insert data:', insertData);
       
       const { data, error: addError } = await supabase
         .from('therapist_availability')
-        .insert([
-          {
-            therapist_id: therapistProfile.id,
-            start_time: params.startTime,
-            end_time: params.endTime,
-            is_recurring: params.isRecurring,
-            day_of_week: params.isRecurring ? params.dayOfWeek : null,
-            specific_date: !params.isRecurring ? params.specificDate : null,
-          },
-        ])
+        .insert([insertData])
         .select('*');
 
       if (addError) {

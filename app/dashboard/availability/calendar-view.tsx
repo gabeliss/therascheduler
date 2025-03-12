@@ -10,8 +10,10 @@ import { timeToMinutes } from './utils/time-utils';
 
 export interface UnifiedCalendarViewProps {
   availability: TherapistAvailability[];
-  unifiedExceptions: UnifiedAvailabilityException[];
-  onTimeSlotClick: (date: Date, timeSlot: string) => void;
+  unifiedExceptions?: UnifiedAvailabilityException[];
+  exceptions?: UnifiedAvailabilityException[];
+  onTimeSlotClick?: (date: Date, timeSlot?: string) => void;
+  onAddException?: (date: Date) => void;
   onEditException?: (exception: UnifiedAvailabilityException) => void;
   onEditAvailability?: (availability: TherapistAvailability) => void;
 }
@@ -19,16 +21,30 @@ export interface UnifiedCalendarViewProps {
 export default function UnifiedCalendarView({ 
   availability,
   unifiedExceptions,
+  exceptions,
   onTimeSlotClick,
+  onAddException,
   onEditException,
   onEditAvailability
 }: UnifiedCalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
+  // Use either exceptions or unifiedExceptions
+  const allExceptions = exceptions || unifiedExceptions || [];
+
   // Navigation functions
   const goToPreviousMonth = () => setCurrentDate(subMonths(currentDate, 1));
   const goToNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+
+  // Handle clicking on a time slot
+  const handleTimeSlotClick = (date: Date, timeSlot?: string) => {
+    if (onTimeSlotClick) {
+      onTimeSlotClick(date, timeSlot);
+    } else if (onAddException) {
+      onAddException(date);
+    }
+  };
 
   // Get days in current month
   const monthStart = startOfMonth(currentDate);
@@ -78,8 +94,8 @@ export default function UnifiedCalendarView({
     );
 
     // Get specific date exceptions
-    const specificExceptions = unifiedExceptions.filter(
-      ex => !ex.is_recurring && ex.specific_date === formattedDate
+    const specificExceptions = allExceptions.filter(
+      ex => !ex.is_recurring && ex.start_date === formattedDate
     );
 
     // If there are specific date entries, use only those
@@ -109,7 +125,7 @@ export default function UnifiedCalendarView({
 
     // Get recurring exceptions for this day
     // Only show recurring exceptions for dates after they were created
-    const recurringExceptions = unifiedExceptions.filter(ex => {
+    const recurringExceptions = allExceptions.filter(ex => {
       if (!ex.is_recurring || ex.day_of_week !== dayOfWeek) return false;
       
       // If this is a past date, check if the exception was created before this date
@@ -122,7 +138,7 @@ export default function UnifiedCalendarView({
       
       // For current and future dates, show all recurring exceptions
       return true;
-    });
+    }) || [];
 
     return {
       availability: recurringAvailability,

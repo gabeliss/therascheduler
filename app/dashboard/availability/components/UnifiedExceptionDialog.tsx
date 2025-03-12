@@ -41,20 +41,22 @@ import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 interface UnifiedExceptionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  specificDate?: Date;
   onSubmit: (data: ExceptionFormValues) => Promise<void>;
+  specificDate?: Date;
+  selectedDate?: Date | null;
 }
 
 const UnifiedExceptionDialog = ({ 
   isOpen, 
   onOpenChange, 
   specificDate,
-  onSubmit 
+  onSubmit,
+  selectedDate: externalSelectedDate
 }: UnifiedExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecurringBlock, setIsRecurringBlock] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(specificDate);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(specificDate || externalSelectedDate || undefined);
   const [selectedDay, setSelectedDay] = useState<number | undefined>(
     specificDate ? specificDate.getDay() : undefined
   );
@@ -113,10 +115,19 @@ const UnifiedExceptionDialog = ({
       form.reset();
       setError(null);
       setIsRecurringBlock(false);
-      setSelectedDate(specificDate);
       setSelectedDay(specificDate ? specificDate.getDay() : undefined);
     }
   }, [isOpen, form, specificDate]);
+
+  // Update state when dialog opens/closes or specificDate changes
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+      setIsRecurringBlock(false);
+      setSelectedDate(specificDate || externalSelectedDate || undefined);
+      setSelectedDay(specificDate ? specificDate.getDay() : undefined);
+    }
+  }, [isOpen, specificDate, externalSelectedDate]);
 
   const handleSubmit = async (data: ExceptionFormValues) => {
     setIsSubmitting(true);

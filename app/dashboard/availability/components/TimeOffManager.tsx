@@ -35,6 +35,7 @@ interface TimeOffManagerProps {
   exceptions: UnifiedAvailabilityException[];
   onDeleteException: (id: string) => void;
   onAddException: (formData: ExceptionFormValues) => Promise<void>;
+  onEditException?: (exception: UnifiedAvailabilityException) => void;
 }
 
 export default function TimeOffManager({ 
@@ -42,7 +43,8 @@ export default function TimeOffManager({
   onOpenChange, 
   exceptions,
   onDeleteException,
-  onAddException
+  onAddException,
+  onEditException
 }: TimeOffManagerProps) {
   const [activeTab, setActiveTab] = useState('recurring');
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
@@ -186,10 +188,12 @@ export default function TimeOffManager({
     
     try {
       if (activeTab === 'recurring') {
-        // Add time off for each selected day
+        // Check for overlaps for each selected day
+        let hasOverlap = false;
+        let overlapDay = '';
+        
         for (const dayIndex of selectedDays) {
-          // Check for overlaps for this day
-          const hasOverlap = checkForOverlaps(
+          const hasOverlapForDay = checkForOverlaps(
             startTime,
             endTime,
             true,
@@ -197,21 +201,47 @@ export default function TimeOffManager({
             undefined
           );
           
-          if (hasOverlap) {
-            setError(`This time range overlaps with existing time off on ${DAYS_OF_WEEK[dayIndex - 1]}. Please choose a different time range.`);
-            setIsSubmitting(false);
-            return;
+          if (hasOverlapForDay) {
+            hasOverlap = true;
+            overlapDay = DAYS_OF_WEEK[dayIndex - 1];
+            break;
+          }
+        }
+        
+        if (hasOverlap) {
+          setError(`This time range overlaps with existing time off on ${overlapDay}. Please choose a different time range.`);
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // For recurring time off, create a single batch operation
+        if (selectedDays.length > 0) {
+          // Create a batch of promises for all days
+          const promises = [];
+          const totalDays = selectedDays.length;
+          
+          // Process all days at once to avoid multiple toasts
+          for (let i = 0; i < totalDays; i++) {
+            const dayIndex = selectedDays[i];
+            const isLastDay = i === totalDays - 1;
+            
+            // Add each day's time off to our batch
+            promises.push(
+              onAddException({
+                startTime,
+                endTime,
+                reason,
+                isRecurring: true,
+                dayOfWeek: dayIndex - 1, // Adjust index to match day of week (0-6)
+                isAllDay,
+                isBatchOperation: !isLastDay, // Mark all but the last one as batch operations
+                skipToast: !isLastDay // Skip toast for all but the last one
+              })
+            );
           }
           
-          // Add time off for this day
-          await onAddException({
-            startTime,
-            endTime,
-            reason,
-            isRecurring: true,
-            dayOfWeek: dayIndex - 1, // Adjust index to match day of week (0-6)
-            isAllDay
-          });
+          // Wait for all promises to complete
+          await Promise.all(promises);
         }
       } else {
         // Add multi-day time off
@@ -263,9 +293,6 @@ export default function TimeOffManager({
       
       // Close the modal
       onOpenChange(false);
-      
-      // Show success message
-      // This would be better handled in the parent component
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
