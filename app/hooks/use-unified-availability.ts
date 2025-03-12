@@ -116,6 +116,7 @@ export function useUnifiedAvailability() {
     startDate,
     endDate,
     isAllDay,
+    skipOverlapCheck = false,
   }: {
     startTime: string;
     endTime: string;
@@ -125,6 +126,7 @@ export function useUnifiedAvailability() {
     startDate?: string;
     endDate?: string;
     isAllDay?: boolean;
+    skipOverlapCheck?: boolean;
   }) {
     try {
       if (!therapistProfile) {
@@ -168,18 +170,20 @@ export function useUnifiedAvailability() {
         }
       }
 
-      // Check for overlaps
-      const overlaps = checkForOverlaps(
-        startTime, 
-        endTime, 
-        isRecurring, 
-        dayOfWeek, 
-        startDate,
-        endDate
-      );
-      
-      if (overlaps) {
-        throw new Error('This time range overlaps with an existing exception');
+      // Check for overlaps only if skipOverlapCheck is false
+      if (!skipOverlapCheck) {
+        const overlaps = checkForOverlaps(
+          startTime, 
+          endTime, 
+          isRecurring, 
+          dayOfWeek, 
+          startDate,
+          endDate
+        );
+        
+        if (overlaps) {
+          throw new Error('This time range overlaps with an existing exception');
+        }
       }
 
       // Prepare exception data

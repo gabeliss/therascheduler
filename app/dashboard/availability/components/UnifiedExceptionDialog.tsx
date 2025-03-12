@@ -34,7 +34,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Calendar } from '@/components/ui/calendar';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
-import { TIME_OPTIONS, DAYS_OF_WEEK, BUSINESS_HOURS } from '../utils/time-utils';
+import { TIME_OPTIONS, DAYS_OF_WEEK, BUSINESS_HOURS, validateTimeRange } from '../utils/time-utils';
 import { format } from 'date-fns';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 
@@ -53,10 +53,14 @@ const UnifiedExceptionDialog = ({
 }: UnifiedExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasOverlap, setHasOverlap] = useState(false);
-  const [type, setType] = useState<'recurring' | 'specific'>(specificDate ? 'specific' : 'recurring');
+  const [isRecurringBlock, setIsRecurringBlock] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(specificDate);
-  const [selectedDay, setSelectedDay] = useState<number | undefined>(specificDate ? specificDate.getDay() : undefined);
+  const [selectedDay, setSelectedDay] = useState<number | undefined>(
+    specificDate ? specificDate.getDay() : undefined
+  );
+  
+  // For now, we're always creating new blocks, not editing
+  const isEditing = false;
   
   const { checkForOverlaps } = useUnifiedAvailability();
 
@@ -66,7 +70,7 @@ const UnifiedExceptionDialog = ({
       startTime: '09:00', // Default to 9:00 AM
       endTime: '17:00',   // Default to 5:00 PM
       reason: '',
-      isRecurring: type === 'recurring',
+      isRecurring: false,
     },
   });
 
@@ -91,81 +95,95 @@ const UnifiedExceptionDialog = ({
   // Watch for changes to start/end time to check for overlaps
   const startTime = form.watch('startTime');
   const endTime = form.watch('endTime');
-  const isRecurring = form.watch('isRecurring');
 
-  // Update form when type changes
+  // Update form when recurring checkbox changes
   useEffect(() => {
-    form.setValue('isRecurring', type === 'recurring');
-  }, [type, form]);
+    form.setValue('isRecurring', isRecurringBlock);
+    
+    // If we're switching to recurring mode and we have a specific date,
+    // make sure the day of week is set from the specific date
+    if (isRecurringBlock && specificDate && selectedDay === undefined) {
+      setSelectedDay(specificDate.getDay());
+    }
+  }, [isRecurringBlock, form, specificDate, selectedDay]);
 
-  // Check for overlapping exceptions when times change
+  // Reset form when dialog is closed
   useEffect(() => {
-    if (!startTime || !endTime) return;
-    
-    let dayOfWeek: number | undefined;
-    let formattedDate: string | undefined;
-    
-    if (type === 'recurring') {
-      dayOfWeek = selectedDay;
-    } else if (selectedDate) {
-      formattedDate = format(selectedDate, 'yyyy-MM-dd');
+    if (!isOpen) {
+      form.reset();
+      setError(null);
+      setIsRecurringBlock(false);
+      setSelectedDate(specificDate);
+      setSelectedDay(specificDate ? specificDate.getDay() : undefined);
     }
-    
-    if ((type === 'recurring' && dayOfWeek === undefined) || 
-        (type === 'specific' && !formattedDate)) {
-      return;
-    }
-    
-    // Check for overlaps
-    const overlaps = checkForOverlaps(
-      startTime,
-      endTime,
-      type === 'recurring',
-      type === 'recurring' ? dayOfWeek : undefined,
-      type === 'specific' ? formattedDate : undefined
-    );
-    
-    setHasOverlap(overlaps);
-  }, [startTime, endTime, type, selectedDay, selectedDate, checkForOverlaps]);
+  }, [isOpen, form, specificDate]);
 
   const handleSubmit = async (data: ExceptionFormValues) => {
-    // Don't allow submission if there's an overlap
-    if (hasOverlap) {
-      setError('This time range overlaps with an existing exception. Please choose a different time.');
-      return;
-    }
-
-    // Validate that we have the necessary data
-    if (type === 'recurring' && selectedDay === undefined) {
-      setError('Please select a day of the week');
-      return;
-    }
-
-    if (type === 'specific' && !selectedDate) {
-      setError('Please select a specific date');
-      return;
-    }
-
     setIsSubmitting(true);
     setError(null);
-
+    
     try {
-      // Add day of week or specific date to the form data
-      const formData = {
+      // Validate that end time is not before start time
+      const validation = validateTimeRange(data.startTime, data.endTime);
+      if (!validation.isValid) {
+        setError(validation.errorMessage || 'Invalid time range');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Validate that we have either a selected date or a day of week
+      if (!isRecurringBlock && !specificDate && !selectedDate) {
+        setError('Please pick a specific date');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      if (isRecurringBlock && selectedDay === undefined) {
+        setError('Please select a day of the week');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Prepare the form data
+      const formData: ExceptionFormValues = {
         ...data,
-        isRecurring: type === 'recurring',
-        dayOfWeek: type === 'recurring' ? selectedDay : undefined,
-        specificDate: type === 'specific' && selectedDate ? format(selectedDate, 'yyyy-MM-dd') : undefined,
+        isRecurring: isRecurringBlock,
       };
-
+      
+      // Set the appropriate date or day of week
+      if (isRecurringBlock) {
+        formData.dayOfWeek = selectedDay;
+      } else {
+        // Use specificDate if provided, otherwise use selectedDate
+        const dateToUse = specificDate || selectedDate;
+        if (dateToUse) {
+          const formattedDate = format(dateToUse, 'yyyy-MM-dd');
+          formData.startDate = formattedDate;
+          formData.endDate = formattedDate;
+        }
+      }
+      
       await onSubmit(formData);
-      form.reset();
+      
+      // Close the dialog after successful submission
       onOpenChange(false);
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Error submitting exception:', err);
+      setError('Failed to save time off. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Generate title based on the date or recurring setting
+  const getDialogTitle = () => {
+    if (specificDate) {
+      const dayName = format(specificDate, 'EEEE');
+      const dateStr = format(specificDate, 'MMMM do');
+      return `Block Time for ${dayName}, ${dateStr}`;
+    }
+    return 'Add Time Off';
   };
 
   return (
@@ -173,44 +191,41 @@ const UnifiedExceptionDialog = ({
       <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Add Time Off
+            {isEditing ? 'Edit Time Off' : 
+              specificDate 
+                ? `Block Time for ${format(specificDate, 'EEEE, MMMM d')}`
+                : isRecurringBlock 
+                  ? 'Block Weekly Time' 
+                  : 'Block Time Off'}
           </DialogTitle>
           <DialogDescription>
-            Block time off from your schedule
+            {isEditing ? 'Make changes to your time off.' : 'Add a new time off block to your schedule.'}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            {hasOverlap && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  This time range overlaps with existing time off. Please choose a different time.
-                </AlertDescription>
-              </Alert>
-            )}
-            
-            {/* Type Selection */}
-            <div className="space-y-2">
-              <FormLabel>Type</FormLabel>
-              <RadioGroup 
-                value={type} 
-                onValueChange={(value) => setType(value as 'recurring' | 'specific')}
-                className="flex flex-col space-y-1"
+            {/* Block Weekly Checkbox */}
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="blockWeekly" 
+                checked={isRecurringBlock}
+                onCheckedChange={(checked) => setIsRecurringBlock(checked === true)}
+              />
+              <label 
+                htmlFor="blockWeekly" 
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="recurring" id="recurring" />
-                  <label htmlFor="recurring" className="cursor-pointer">Recurring (weekly)</label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="specific" id="specific" />
-                  <label htmlFor="specific" className="cursor-pointer">Specific Date</label>
-                </div>
-              </RadioGroup>
+                Block Weekly
+                {specificDate && (
+                  <span className="text-gray-500 ml-1">
+                    (Every {format(specificDate, 'EEEE')})
+                  </span>
+                )}
+              </label>
             </div>
             
-            {/* Day Selection for Recurring */}
-            {type === 'recurring' && (
+            {/* Day Selection for Recurring - Only show if specificDate is not provided */}
+            {isRecurringBlock && !specificDate && (
               <div className="space-y-2">
                 <FormLabel>Day of Week</FormLabel>
                 <Select
@@ -231,8 +246,8 @@ const UnifiedExceptionDialog = ({
               </div>
             )}
             
-            {/* Date Selection for Specific */}
-            {type === 'specific' && (
+            {/* Date Selection for Specific - Only show if specificDate is not provided */}
+            {!isRecurringBlock && !specificDate && (
               <div className="space-y-2">
                 <FormLabel>Date</FormLabel>
                 <div className="border rounded-md p-1">
@@ -330,7 +345,7 @@ const UnifiedExceptionDialog = ({
               </DialogClose>
               <Button 
                 type="submit" 
-                disabled={isSubmitting || hasOverlap}
+                disabled={isSubmitting}
                 className="min-w-[100px]"
               >
                 {isSubmitting ? (

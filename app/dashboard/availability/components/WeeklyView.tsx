@@ -444,7 +444,28 @@ export default function WeeklyView({
 
         return (
           <div key={day} className="border rounded-lg p-4 shadow-sm">
-            <h3 className="text-lg font-semibold mb-3">{formattedDay}</h3>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-semibold">{formattedDay}</h3>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="secondary" 
+                      size="sm" 
+                      onClick={() => onAddException(currentDay)}
+                      disabled={isPastDate}
+                      className="text-xs"
+                    >
+                      <Clock className="h-3.5 w-3.5 mr-1" />
+                      Block Time
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{isPastDate ? "Cannot block time in the past" : `Block time off for ${format(currentDay, 'MMMM do')}`}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             
             {timelineBlocks.length > 0 ? (
               <div className="space-y-1">

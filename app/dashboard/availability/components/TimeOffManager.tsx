@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime, DAYS_OF_WEEK, TIME_OPTIONS } from '../utils/time-utils';
+import { formatTime, DAYS_OF_WEEK, TIME_OPTIONS, validateTimeRange } from '../utils/time-utils';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Select,
@@ -156,6 +156,13 @@ export default function TimeOffManager({
   // Handle form submission
   const handleSubmit = async () => {
     setError(null);
+    
+    // Validate time range
+    const validation = validateTimeRange(startTime, endTime);
+    if (!validation.isValid) {
+      setError(validation.errorMessage || 'Invalid time range');
+      return;
+    }
     
     // Validate form
     if (activeTab === 'recurring' && selectedDays.length === 0) {

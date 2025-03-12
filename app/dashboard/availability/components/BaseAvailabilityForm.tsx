@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BaseAvailabilityFormValues, refinedBaseSchema } from '../utils/schemas';
-import { DAYS_OF_WEEK, TIME_OPTIONS, BUSINESS_HOURS } from '../utils/time-utils';
+import { DAYS_OF_WEEK, TIME_OPTIONS, BUSINESS_HOURS, validateTimeRange } from '../utils/time-utils';
 
 interface BaseAvailabilityFormProps {
   isOpen: boolean;
@@ -89,6 +89,13 @@ const BaseAvailabilityForm = ({
   };
 
   const handleSubmit = async (data: BaseAvailabilityFormValues) => {
+    // Validate time range
+    const validation = validateTimeRange(data.startTime, data.endTime);
+    if (!validation.isValid) {
+      setError(validation.errorMessage || 'Invalid time range');
+      return;
+    }
+    
     // Check for overlaps if the function is provided
     if (checkForOverlaps) {
       const overlaps = checkForOverlaps(data);

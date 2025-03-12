@@ -170,4 +170,19 @@ export const TIME_SLOTS = Array.from({ length: 26 }, (_, i) => {
 export function timeToMinutes(time: string): number {
   const [hours, minutes] = time.split(':').map(Number);
   return hours * 60 + minutes;
+}
+
+// Validate that end time is after start time
+export function validateTimeRange(startTime: string, endTime: string): { isValid: boolean; errorMessage?: string } {
+  const startMinutes = timeToMinutes(startTime);
+  const endMinutes = timeToMinutes(endTime);
+  
+  if (endMinutes <= startMinutes) {
+    return {
+      isValid: false,
+      errorMessage: 'End time cannot be before or equal to start time'
+    };
+  }
+  
+  return { isValid: true };
 } 

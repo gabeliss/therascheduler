@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TIME_OPTIONS, formatTime } from '../utils/time-utils';
+import { TIME_OPTIONS, formatTime, validateTimeRange } from '../utils/time-utils';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { Calendar } from '@/components/ui/calendar';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -73,6 +73,14 @@ const EditTimeOffDialog = ({
     setIsSubmitting(true);
     
     try {
+      // Validate that end time is not before start time
+      const validation = validateTimeRange(startTime, endTime);
+      if (!validation.isValid) {
+        setError(validation.errorMessage || 'Invalid time range');
+        setIsSubmitting(false);
+        return;
+      }
+      
       // For non-recurring exceptions, validate dates
       if (!exception.is_recurring) {
         if (!startDate || !endDate) {
@@ -105,6 +113,12 @@ const EditTimeOffDialog = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Helper function to convert time string to minutes for comparison
+  const timeToMinutes = (timeStr: string): number => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
   };
 
   if (!exception) return null;

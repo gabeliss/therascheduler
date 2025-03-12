@@ -420,25 +420,55 @@ export default function AvailabilityPage() {
       } else if (!data.isRecurring) {
         // Handle multi-day time-offs
         if (data.startDate && data.endDate) {
-          // For multi-day time-offs, we'll just check if there are any overlaps
-          // without showing the merge dialog, as merging would be more complex
-          
-          const hasOverlap = checkExceptionOverlaps(
-            data.startTime,
-            data.endTime,
-            false,
-            undefined,
-            data.startDate,
-            data.endDate
+          // Check for overlaps with specific date exceptions first
+          const overlappingSpecificExceptions = unifiedAvailability.filter(ex => 
+            !ex.is_recurring && 
+            ex.start_date && ex.end_date && 
+            data.startDate && data.endDate && 
+            ex.start_date <= data.endDate && 
+            ex.end_date >= data.startDate
           );
           
-          if (hasOverlap) {
-            toast({
-              title: "Overlapping time off",
-              description: "This time range overlaps with existing time off. Please choose a different time range.",
-              variant: "destructive"
+          if (overlappingSpecificExceptions.length > 0) {
+            hasOverlap = true;
+            
+            // Get the date range for display
+            const startDate = new Date(data.startDate);
+            const endDate = new Date(data.endDate);
+            let dayDisplay = format(startDate, 'MMM do');
+            
+            if (data.startDate !== data.endDate) {
+              dayDisplay += ` - ${format(endDate, 'MMM do')}`;
+            }
+            
+            overlappingDays.push(dayDisplay);
+            
+            // Use the first overlapping exception as the existing slot
+            const bestMatch = overlappingSpecificExceptions[0];
+            
+            existingSlots.push({
+              day: dayDisplay,
+              startTime: bestMatch.start_time,
+              endTime: bestMatch.end_time
             });
-            return;
+            
+            // Calculate merged slot
+            const mergedSlot = calculateMergedTimeOffSlot(
+              data.startTime,
+              data.endTime,
+              bestMatch.start_time,
+              bestMatch.end_time
+            );
+            
+            mergedSlots.push({
+              day: dayDisplay,
+              startTime: mergedSlot.startTime,
+              endTime: mergedSlot.endTime
+            });
+          } else {
+            // Check for overlaps with recurring exceptions
+            // For specific date blocks, we'll just override recurring blocks without showing the dialog
+            // So we don't need to check for overlaps with recurring exceptions
           }
         } else {
           toast({
@@ -635,7 +665,8 @@ export default function AvailabilityPage() {
             dayOfWeek: timeOffOverlapData.formData.dayOfWeek,
             startDate: timeOffOverlapData.formData.startDate,
             endDate: timeOffOverlapData.formData.endDate,
-            isAllDay: timeOffOverlapData.formData.isAllDay || false
+            isAllDay: timeOffOverlapData.formData.isAllDay || false,
+            skipOverlapCheck: true
           });
         } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.startDate && timeOffOverlapData.formData.endDate) {
           // For non-recurring time off
@@ -666,7 +697,8 @@ export default function AvailabilityPage() {
             dayOfWeek: timeOffOverlapData.formData.dayOfWeek,
             startDate: timeOffOverlapData.formData.startDate,
             endDate: timeOffOverlapData.formData.endDate,
-            isAllDay: timeOffOverlapData.formData.isAllDay || false
+            isAllDay: timeOffOverlapData.formData.isAllDay || false,
+            skipOverlapCheck: true
           });
         }
       } else if (action === 'merge') {
@@ -694,7 +726,8 @@ export default function AvailabilityPage() {
             ...timeOffOverlapData.formData,
             startTime: mergedSlot.startTime,
             endTime: mergedSlot.endTime,
-            isAllDay: timeOffOverlapData.formData.isAllDay || false
+            isAllDay: timeOffOverlapData.formData.isAllDay || false,
+            skipOverlapCheck: true
           });
         } else if (!timeOffOverlapData.formData.isRecurring && timeOffOverlapData.formData.startDate && timeOffOverlapData.formData.endDate) {
           // For non-recurring time off
@@ -724,7 +757,8 @@ export default function AvailabilityPage() {
             ...timeOffOverlapData.formData,
             startTime: mergedSlot.startTime,
             endTime: mergedSlot.endTime,
-            isAllDay: timeOffOverlapData.formData.isAllDay || false
+            isAllDay: timeOffOverlapData.formData.isAllDay || false,
+            skipOverlapCheck: true
           });
         }
       }

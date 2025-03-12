@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TIME_OPTIONS, formatTime } from '../utils/time-utils';
+import { TIME_OPTIONS, formatTime, validateTimeRange } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 
 interface EditAvailabilityDialogProps {
@@ -51,6 +51,14 @@ const EditAvailabilityDialog = ({
     if (!availability) return;
     
     setError(null);
+    
+    // Validate time range
+    const validation = validateTimeRange(startTime, endTime);
+    if (!validation.isValid) {
+      setError(validation.errorMessage || 'Invalid time range');
+      return;
+    }
+    
     setIsSubmitting(true);
     
     try {
@@ -75,8 +83,8 @@ const EditAvailabilityDialog = ({
     title = `Edit Availability for ${dayName}s`;
   } else {
     // For non-recurring availability, show the date
-    if (availability.start_date) {
-      const date = new Date(availability.start_date + 'T00:00:00');
+    if (availability.specific_date) {
+      const date = new Date(availability.specific_date + 'T00:00:00');
       title = `Edit Availability for ${format(date, 'EEEE, MMMM do')}`;
     } else {
       title = 'Edit Availability for Unknown Date';
