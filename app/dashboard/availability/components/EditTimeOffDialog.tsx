@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format, parseISO, isAfter } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,15 @@ import {
 } from '@/components/ui/select';
 import { TIME_OPTIONS, formatTime } from '../utils/time-utils';
 import { UnifiedAvailabilityException } from '@/app/types/index';
+import { Calendar } from '@/components/ui/calendar';
+import { Checkbox } from '@/components/ui/checkbox';
+import DateRangeSelector from './DateRangeSelector';
 
 interface EditTimeOffDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   exception: UnifiedAvailabilityException | null;
-  onSave: (id: string, startTime: string, endTime: string, reason: string) => Promise<void>;
+  onSave: (id: string, startTime: string, endTime: string, reason: string, startDate?: string, endDate?: string, isAllDay?: boolean) => Promise<void>;
 }
 
 const EditTimeOffDialog = ({
@@ -35,6 +38,9 @@ const EditTimeOffDialog = ({
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
   const [reason, setReason] = useState('');
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [isAllDay, setIsAllDay] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +53,16 @@ const EditTimeOffDialog = ({
       setStartTime(exception.start_time);
       setEndTime(exception.end_time);
       setReason(exception.reason || '');
+      setIsAllDay(exception.is_all_day || false);
+      
+      // Set dates for non-recurring exceptions
+      if (!exception.is_recurring && exception.start_date && exception.end_date) {
+        setStartDate(parseISO(exception.start_date));
+        setEndDate(parseISO(exception.end_date));
+      } else {
+        setStartDate(undefined);
+        setEndDate(undefined);
+      }
     }
   }, [exception]);
 
@@ -57,7 +73,32 @@ const EditTimeOffDialog = ({
     setIsSubmitting(true);
     
     try {
-      await onSave(exception.id, startTime, endTime, reason);
+      // For non-recurring exceptions, validate dates
+      if (!exception.is_recurring) {
+        if (!startDate || !endDate) {
+          setError('Please select both start and end dates');
+          setIsSubmitting(false);
+          return;
+        }
+        
+        // Format dates as YYYY-MM-DD
+        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+        
+        await onSave(
+          exception.id, 
+          startTime, 
+          endTime, 
+          reason, 
+          formattedStartDate, 
+          formattedEndDate,
+          isAllDay
+        );
+      } else {
+        // For recurring exceptions, just pass the time and reason
+        await onSave(exception.id, startTime, endTime, reason);
+      }
+      
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -96,12 +137,50 @@ const EditTimeOffDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
+          {/* Date Selection for non-recurring exceptions */}
+          {!exception.is_recurring && (
+            <div className="space-y-4">
+              <DateRangeSelector
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+                disablePastDates={false}
+              />
+              
+              {/* All Day Checkbox */}
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="isAllDay" 
+                  checked={isAllDay} 
+                  onCheckedChange={(checked) => {
+                    setIsAllDay(checked === true);
+                    if (checked) {
+                      setStartTime('00:00');
+                      setEndTime('23:59');
+                    } else {
+                      setStartTime('09:00');
+                      setEndTime('17:00');
+                    }
+                  }}
+                />
+                <label 
+                  htmlFor="isAllDay" 
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  All Day
+                </label>
+              </div>
+            </div>
+          )}
+          
+          {/* Time Selection */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Start Time</label>
@@ -109,6 +188,7 @@ const EditTimeOffDialog = ({
                 value={startTime}
                 onValueChange={setStartTime}
                 defaultValue={exception?.start_time || '09:00'}
+                disabled={isAllDay}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select start time">
@@ -130,6 +210,7 @@ const EditTimeOffDialog = ({
                 value={endTime}
                 onValueChange={setEndTime}
                 defaultValue={exception?.end_time || '17:00'}
+                disabled={isAllDay}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select end time">

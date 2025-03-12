@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { ExceptionFormValues } from '../utils/schemas';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { Checkbox } from '@/components/ui/checkbox';
+import DateRangeSelector from './DateRangeSelector';
 
 interface TimeOffManagerProps {
   isOpen: boolean;
@@ -267,7 +268,7 @@ export default function TimeOffManager({
   
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Schedule Time Off</DialogTitle>
           <DialogDescription>
@@ -388,40 +389,13 @@ export default function TimeOffManager({
           <TabsContent value="specific" className="space-y-4 mt-4">
             <div className="space-y-4">
               {/* Date Selection */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Date Range</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Start Date</label>
-                    <div className="border rounded-md p-1 w-full">
-                      <Calendar
-                        mode="single"
-                        selected={startDate}
-                        onSelect={setStartDate}
-                        className="rounded-md border w-full"
-                        disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">End Date</label>
-                    <div className="border rounded-md p-1 w-full">
-                      <Calendar
-                        mode="single"
-                        selected={endDate}
-                        onSelect={setEndDate}
-                        className="rounded-md border w-full"
-                        disabled={(date) => {
-                          const today = new Date(new Date().setHours(0, 0, 0, 0));
-                          if (date < today) return true;
-                          if (startDate && date < startDate) return true;
-                          return false;
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <DateRangeSelector
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+                disablePastDates={true}
+              />
               
               {/* All Day Checkbox */}
               <div className="flex items-center space-x-2">

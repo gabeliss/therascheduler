@@ -522,13 +522,28 @@ export default function AvailabilityPage() {
   };
 
   // Function to save edited time off
-  const handleSaveTimeOff = async (id: string, startTime: string, endTime: string, reason: string) => {
+  const handleSaveTimeOff = async (
+    id: string, 
+    startTime: string, 
+    endTime: string, 
+    reason: string,
+    startDate?: string,
+    endDate?: string,
+    isAllDay?: boolean
+  ) => {
     try {
-      await updateUnifiedException(id, {
+      const updates: Partial<UnifiedAvailabilityException> = {
         start_time: startTime,
         end_time: endTime,
         reason
-      });
+      };
+      
+      // Add date fields if provided (for multi-day time offs)
+      if (startDate) updates.start_date = startDate;
+      if (endDate) updates.end_date = endDate;
+      if (isAllDay !== undefined) updates.is_all_day = isAllDay;
+      
+      await updateUnifiedException(id, updates);
       
       toast({
         title: "Time off updated",
