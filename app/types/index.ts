@@ -31,6 +31,16 @@ export interface Appointment {
   created_at: string;
   updated_at: string;
   client?: ClientProfile;
+  overrides_time_off?: boolean; // Indicates if this appointment overrides a time-off period
+  override_reason?: string; // Reason for overriding time-off
+  formatted_start_time?: string; // Formatted start time for display
+  formatted_end_time?: string; // Formatted end time for display
+  display_start_time?: string; // Time string in HH:MM:SS format for display
+  display_end_time?: string; // Time string in HH:MM:SS format for display
+  date_string?: string; // Date string in YYYY-MM-DD format for filtering
+  time_zone?: string; // Full time zone name (e.g., "America/New_York")
+  time_zone_abbr?: string; // Time zone abbreviation (e.g., "EDT")
+  time_zone_offset?: number; // Timezone offset in minutes
 }
 
 export interface Availability {

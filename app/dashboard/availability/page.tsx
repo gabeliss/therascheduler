@@ -22,6 +22,7 @@ import EditAvailabilityDialog from './components/EditAvailabilityDialog';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { useDialogState } from '@/app/hooks/use-dialog-state';
 import { useAvailabilityOperations } from '@/app/hooks/use-availability-operations';
+import { useAppointments } from '@/app/hooks/use-appointments';
 
 // Component for the Add Availability button
 function AddAvailabilityButton({ onClick }: { onClick: () => void }) {
@@ -69,6 +70,11 @@ export default function AvailabilityPage() {
     deleteAvailability,
     checkForOverlaps
   } = useTherapistAvailability();
+  
+  const { 
+    appointments, 
+    loading: appointmentsLoading 
+  } = useAppointments();
   
   const { toast } = useToast();
   
@@ -574,12 +580,14 @@ export default function AvailabilityPage() {
             <WeeklyView
               availability={availability}
               exceptions={unifiedAvailability}
+              appointments={appointments}
               onAddException={(date) => exceptionDialog.openDialog(date)}
               onDeleteException={handleDeleteException}
               onDeleteAvailability={deleteAvailability}
               formatDate={formatDate}
               onEditException={handleEditTimeOff}
               onEditAvailability={handleEditAvailability}
+              showAppointments={true}
             />
           </TabsContent>
           
@@ -587,7 +595,9 @@ export default function AvailabilityPage() {
             <UnifiedCalendarView
               availability={availability}
               exceptions={unifiedAvailability}
+              appointments={appointments}
               onAddException={(date: Date) => exceptionDialog.openDialog(date)}
+              showAppointments={true}
             />
           </TabsContent>
         </Tabs>

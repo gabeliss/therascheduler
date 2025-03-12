@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/app/context/auth-context';
-import { useAppointments } from '@/app/hooks/use-appointments';
+import { useAppointments, ConflictCheckResult } from '@/app/hooks/use-appointments';
 import { Appointment } from '@/app/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,6 +51,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import ConflictResolutionDialog from './components/ConflictResolutionDialog';
+import { TimePickerInput } from '@/components/ui/time-picker-input';
 
 // Define ClientProfile interface
 interface ClientProfile {
@@ -75,6 +77,10 @@ interface AppointmentWithClient {
   created_at: string;
   updated_at: string;
   client?: ClientProfile;
+  formatted_start_time?: string;
+  formatted_end_time?: string;
+  time_zone_abbr?: string;
+  time_zone?: string;
 }
 
 const appointmentSchema = z.object({
@@ -107,9 +113,36 @@ const APPOINTMENT_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+// Helper function to round time to nearest 15 minutes
+function roundToNearest15Minutes(date: Date): Date {
+  const minutes = date.getMinutes();
+  const remainder = minutes % 15;
+  const roundedMinutes = remainder < 8 ? minutes - remainder : minutes + (15 - remainder);
+  
+  const result = new Date(date);
+  result.setMinutes(roundedMinutes);
+  result.setSeconds(0);
+  result.setMilliseconds(0);
+  
+  return result;
+}
+
+// Helper function to format date for datetime-local input
+function formatDateForInput(date: Date): string {
+  return format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
 export default function AppointmentsPage() {
   const { user } = useAuth();
-  const { appointments, loading, error, updateAppointmentStatus, createAppointment, refreshAppointments } = useAppointments();
+  const { 
+    appointments, 
+    loading, 
+    error, 
+    updateAppointmentStatus, 
+    createAppointment, 
+    checkConflicts,
+    refreshAppointments 
+  } = useAppointments();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithClient | null>(null);
@@ -122,6 +155,11 @@ export default function AppointmentsPage() {
     direction: 'asc',
   });
   const [activeTab, setActiveTab] = useState('upcoming');
+  
+  // State for conflict resolution
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [conflicts, setConflicts] = useState<ConflictCheckResult | null>(null);
+  const [pendingAppointmentData, setPendingAppointmentData] = useState<AppointmentFormValues | null>(null);
 
   const form = useForm<AppointmentFormValues>({
     resolver: zodResolver(appointmentSchema),
@@ -169,6 +207,7 @@ export default function AppointmentsPage() {
     const now = new Date();
     if (activeTab === 'upcoming') {
       filtered = filtered.filter(appointment => new Date(appointment.start_time) >= now);
+      console.log('Filtered appointments:', filtered);
     } else if (activeTab === 'past') {
       filtered = filtered.filter(appointment => new Date(appointment.start_time) < now);
     }
@@ -230,7 +269,11 @@ export default function AppointmentsPage() {
 
   const onSubmit = async (data: AppointmentFormValues) => {
     try {
-      await createAppointment({
+      // Store the form data in case we need it for conflict resolution
+      setPendingAppointmentData(data);
+      
+      // Attempt to create the appointment
+      const result = await createAppointment({
         clientName: data.clientName,
         clientEmail: data.clientEmail,
         clientPhone: data.clientPhone,
@@ -238,7 +281,18 @@ export default function AppointmentsPage() {
         endTime: data.endTime,
         type: data.type,
         notes: data.notes,
+        overrideTimeOff: false
       });
+      
+      // Check if there are conflicts that require override
+      if (result.requiresOverride && result.conflicts) {
+        // Store the conflicts and show the conflict dialog
+        setConflicts(result.conflicts);
+        setShowConflictDialog(true);
+        return;
+      }
+      
+      // No conflicts, appointment created successfully
       setIsDialogOpen(false);
       form.reset();
       toast({
@@ -253,6 +307,49 @@ export default function AppointmentsPage() {
         variant: 'destructive',
       });
     }
+  };
+  
+  // Handle override confirmation
+  const handleOverride = async (overrideReason: string) => {
+    if (!pendingAppointmentData) return;
+    
+    try {
+      // Create the appointment with override flag
+      await createAppointment({
+        ...pendingAppointmentData,
+        overrideTimeOff: true,
+        overrideReason
+      });
+      
+      // Close dialogs and reset
+      setShowConflictDialog(false);
+      setIsDialogOpen(false);
+      form.reset();
+      setPendingAppointmentData(null);
+      
+      toast({
+        title: 'Appointment created',
+        description: 'Appointment has been created, overriding scheduling conflicts.',
+      });
+    } catch (err) {
+      console.error('Failed to create appointment with override:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to create appointment.',
+        variant: 'destructive',
+      });
+    }
+  };
+  
+  // Handle reschedule option
+  const handleReschedule = () => {
+    // Close the conflict dialog but keep the appointment form open
+    setShowConflictDialog(false);
+    
+    toast({
+      title: 'Please reschedule',
+      description: 'Please select a different time for this appointment.',
+    });
   };
 
   const viewAppointmentDetails = (appointment: AppointmentWithClient) => {
@@ -352,9 +449,64 @@ export default function AppointmentsPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Start Time</FormLabel>
-                          <FormControl>
-                            <Input type="datetime-local" {...field} />
-                          </FormControl>
+                          <div className="flex space-x-2">
+                            <div className="flex-1">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <FormControl>
+                                    <Button
+                                      variant="outline"
+                                      className={cn(
+                                        "w-full pl-3 text-left font-normal",
+                                        !field.value && "text-muted-foreground"
+                                      )}
+                                    >
+                                      {field.value ? (
+                                        format(new Date(field.value), "PPP")
+                                      ) : (
+                                        <span>Pick a date</span>
+                                      )}
+                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                    </Button>
+                                  </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={field.value ? new Date(field.value) : undefined}
+                                    onSelect={(date) => {
+                                      if (date) {
+                                        // Preserve the time from the existing value or use current time
+                                        const currentValue = field.value ? new Date(field.value) : roundToNearest15Minutes(new Date());
+                                        const newDate = new Date(date);
+                                        newDate.setHours(currentValue.getHours());
+                                        newDate.setMinutes(currentValue.getMinutes());
+                                        field.onChange(formatDateForInput(newDate));
+                                      }
+                                    }}
+                                    disabled={{ before: new Date() }}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="w-[140px]">
+                              <TimePickerInput
+                                value={field.value ? new Date(field.value) : undefined}
+                                onChange={(time: Date) => {
+                                  if (time) {
+                                    // Preserve the date from the existing value or use today
+                                    const currentValue = field.value ? new Date(field.value) : new Date();
+                                    const newDate = new Date(currentValue);
+                                    newDate.setHours(time.getHours());
+                                    newDate.setMinutes(time.getMinutes());
+                                    field.onChange(formatDateForInput(newDate));
+                                  }
+                                }}
+                                minuteIncrement={15}
+                              />
+                            </div>
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -365,9 +517,68 @@ export default function AppointmentsPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>End Time</FormLabel>
-                          <FormControl>
-                            <Input type="datetime-local" {...field} />
-                          </FormControl>
+                          <div className="flex space-x-2">
+                            <div className="flex-1">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <FormControl>
+                                    <Button
+                                      variant="outline"
+                                      className={cn(
+                                        "w-full pl-3 text-left font-normal",
+                                        !field.value && "text-muted-foreground"
+                                      )}
+                                    >
+                                      {field.value ? (
+                                        format(new Date(field.value), "PPP")
+                                      ) : (
+                                        <span>Pick a date</span>
+                                      )}
+                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                    </Button>
+                                  </FormControl>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                  <Calendar
+                                    mode="single"
+                                    selected={field.value ? new Date(field.value) : undefined}
+                                    onSelect={(date) => {
+                                      if (date) {
+                                        // Preserve the time from the existing value or use current time + 1 hour
+                                        const currentValue = field.value ? new Date(field.value) : (() => {
+                                          const now = roundToNearest15Minutes(new Date());
+                                          now.setHours(now.getHours() + 1);
+                                          return now;
+                                        })();
+                                        const newDate = new Date(date);
+                                        newDate.setHours(currentValue.getHours());
+                                        newDate.setMinutes(currentValue.getMinutes());
+                                        field.onChange(formatDateForInput(newDate));
+                                      }
+                                    }}
+                                    disabled={{ before: new Date() }}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="w-[140px]">
+                              <TimePickerInput
+                                value={field.value ? new Date(field.value) : undefined}
+                                onChange={(time: Date) => {
+                                  if (time) {
+                                    // Preserve the date from the existing value or use today
+                                    const currentValue = field.value ? new Date(field.value) : new Date();
+                                    const newDate = new Date(currentValue);
+                                    newDate.setHours(time.getHours());
+                                    newDate.setMinutes(time.getMinutes());
+                                    field.onChange(formatDateForInput(newDate));
+                                  }
+                                }}
+                                minuteIncrement={15}
+                              />
+                            </div>
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -548,7 +759,9 @@ export default function AppointmentsPage() {
               filteredAppointments.map((appointment) => (
                 <TableRow key={appointment.id}>
                   <TableCell>
-                    {format(new Date(appointment.start_time), 'MMM d, yyyy h:mm a')}
+                    {appointment.formatted_start_time 
+                      ? format(new Date(appointment.formatted_start_time), 'MMM d, yyyy h:mm a')
+                      : format(new Date(appointment.start_time), 'MMM d, yyyy h:mm a')}
                   </TableCell>
                   <TableCell>{appointment.client?.name || 'Unknown Client'}</TableCell>
                   <TableCell>
@@ -645,11 +858,19 @@ export default function AppointmentsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <h3 className="text-sm font-medium text-gray-500">Start Time</h3>
-                  <p className="text-base">{format(new Date(selectedAppointment.start_time), 'MMM d, yyyy h:mm a')}</p>
+                  <p className="text-base">
+                    {selectedAppointment.formatted_start_time 
+                      ? format(new Date(selectedAppointment.formatted_start_time), 'MMM d, yyyy h:mm a')
+                      : format(new Date(selectedAppointment.start_time), 'MMM d, yyyy h:mm a')}
+                  </p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-500">End Time</h3>
-                  <p className="text-base">{format(new Date(selectedAppointment.end_time), 'MMM d, yyyy h:mm a')}</p>
+                  <p className="text-base">
+                    {selectedAppointment.formatted_end_time 
+                      ? format(new Date(selectedAppointment.formatted_end_time), 'MMM d, yyyy h:mm a')
+                      : format(new Date(selectedAppointment.end_time), 'MMM d, yyyy h:mm a')}
+                  </p>
                 </div>
               </div>
               
@@ -712,6 +933,20 @@ export default function AppointmentsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Add the conflict resolution dialog */}
+      <ConflictResolutionDialog
+        isOpen={showConflictDialog}
+        onOpenChange={setShowConflictDialog}
+        availabilityConflict={conflicts?.availabilityConflict || null}
+        timeOffConflict={conflicts?.timeOffConflict || null}
+        onCancel={() => {
+          setShowConflictDialog(false);
+          setPendingAppointmentData(null);
+        }}
+        onOverride={handleOverride}
+        onReschedule={handleReschedule}
+      />
     </div>
   );
 } 

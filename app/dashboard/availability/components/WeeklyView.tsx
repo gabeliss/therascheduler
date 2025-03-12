@@ -4,23 +4,29 @@ import { useState } from 'react';
 import { format, addDays, startOfWeek, isAfter, isSameDay, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { formatTime, timeToMinutes } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Appointment } from '@/app/types';
+import { useAppointments } from '@/app/hooks/use-appointments';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 export interface WeeklyViewProps {
   availability: TherapistAvailability[];
   exceptions: UnifiedAvailabilityException[];
+  appointments?: Appointment[];
   onAddException: (date: Date) => void;
-  onDeleteException: (id: string) => Promise<void>;
-  onDeleteAvailability: (id: string) => Promise<void>;
-  formatDate: (dateString: string | undefined) => string;
-  onEditException?: (exception: UnifiedAvailabilityException) => void;
-  onEditAvailability?: (availability: TherapistAvailability) => void;
-  actionButtons?: React.ReactNode;
+  onDeleteException: (id: string) => void;
+  onDeleteAvailability: (id: string) => void;
+  formatDate: (date: string) => string;
+  onEditException: (exception: UnifiedAvailabilityException) => void;
+  onEditAvailability: (availability: TherapistAvailability) => void;
+  showAppointments?: boolean;
 }
 
 // Interface for a time block that can be either availability or time off
@@ -29,25 +35,31 @@ interface TimeBlock {
   start_time: string;
   end_time: string;
   is_recurring: boolean;
-  type: 'availability' | 'time-off';
+  type: 'availability' | 'time-off' | 'appointment';
   reason?: string;
-  original: TherapistAvailability | UnifiedAvailabilityException;
+  original: TherapistAvailability | UnifiedAvailabilityException | Appointment;
   original_time?: string;
   is_all_day?: boolean;
+  client_name?: string;
+  status?: string;
 }
 
 export default function WeeklyView({
   availability,
   exceptions,
+  appointments: propAppointments,
   onAddException,
   onDeleteException,
   onDeleteAvailability,
   formatDate,
   onEditException,
   onEditAvailability,
-  actionButtons
+  showAppointments = true
 }: WeeklyViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [showTimeOff, setShowTimeOff] = useState(true);
+  const [showAppointmentsState, setShowAppointmentsState] = useState(showAppointments);
+  const { appointments: hookAppointments, loading: appointmentsLoading } = useAppointments();
   
   // Get the start of the week (Sunday)
   const weekStart = startOfWeek(currentDate);
@@ -360,6 +372,108 @@ export default function WeeklyView({
   const weekEndFormatted = format(addDays(weekStart, 6), "MMMM do, yyyy");
   const weekRangeTitle = `Weekly Schedule: ${weekStartFormatted} - ${weekEndFormatted}`;
   
+  // Use either provided appointments or appointments from the hook
+  const appointments = propAppointments || (showAppointmentsState ? hookAppointments : []);
+
+  // Get recurring availability for a specific day
+  const getRecurringAvailabilityForDay = (dayIndex: number) => {
+    return availability.filter(slot => slot.is_recurring && slot.day_of_week === dayIndex);
+  };
+
+  // Get recurring exceptions for a specific day
+  const getRecurringExceptionsForDay = (dayIndex: number) => {
+    return exceptions.filter(ex => ex.is_recurring && ex.day_of_week === dayIndex);
+  };
+  
+  // Get appointments for a specific day of the week
+  const getAppointmentsForDay = (dayIndex: number) => {
+    if (!showAppointmentsState || !appointments.length) return [];
+    
+    // Get the date for this day in the current week
+    const currentDayDate = weekDays[dayIndex];
+    const formattedDate = format(currentDayDate, 'yyyy-MM-dd');
+    
+    return appointments.filter(appointment => {
+      // Use the date_string property if available
+      if ('date_string' in appointment && appointment.date_string) {
+        return appointment.date_string === formattedDate;
+      }
+      
+      // Fallback to calculating from start_time
+      const appointmentDate = new Date(appointment.start_time);
+      const appointmentDateString = format(appointmentDate, 'yyyy-MM-dd');
+      return appointmentDateString === formattedDate;
+    });
+  };
+
+  // Create a unified timeline that includes appointments
+  const createUnifiedTimelineWithAppointments = (
+    availabilityBlocks: TimeBlock[],
+    dayAppointments: Appointment[]
+  ): TimeBlock[] => {
+    if (!showAppointmentsState || !dayAppointments.length) {
+      return availabilityBlocks;
+    }
+
+    const timeline = [...availabilityBlocks];
+    
+    // Add appointments to the timeline
+    dayAppointments.forEach(appointment => {
+      // Get the correct start and end times
+      let startTimeStr, endTimeStr;
+      
+      if ('display_start_time' in appointment && typeof appointment.display_start_time === 'string') {
+        // Use the display time properties if available
+        startTimeStr = appointment.display_start_time;
+        endTimeStr = 'display_end_time' in appointment && typeof appointment.display_end_time === 'string' 
+          ? appointment.display_end_time 
+          : format(new Date(appointment.end_time), 'HH:mm:ss');
+      } else if ('formatted_start_time' in appointment && typeof appointment.formatted_start_time === 'string') {
+        // Use the formatted time if available
+        const formattedStart = new Date(appointment.formatted_start_time);
+        const formattedEnd = new Date(
+          'formatted_end_time' in appointment && typeof appointment.formatted_end_time === 'string' 
+            ? appointment.formatted_end_time 
+            : appointment.end_time
+        );
+        startTimeStr = format(formattedStart, 'HH:mm:ss');
+        endTimeStr = format(formattedEnd, 'HH:mm:ss');
+      } else {
+        // Fall back to regular time handling
+        const startDate = new Date(appointment.start_time);
+        const endDate = new Date(appointment.end_time);
+        startTimeStr = format(startDate, 'HH:mm:ss');
+        endTimeStr = format(endDate, 'HH:mm:ss');
+      }
+      
+      // Get client name safely with proper type checking
+      let clientName: string | undefined = undefined;
+      if ('client' in appointment && 
+          appointment.client && 
+          typeof appointment.client === 'object' && 
+          'name' in appointment.client) {
+        clientName = appointment.client.name as string;
+      }
+      
+      timeline.push({
+        id: `appointment-${appointment.id}`,
+        start_time: startTimeStr,
+        end_time: endTimeStr,
+        is_recurring: false,
+        type: 'appointment' as any, // Type assertion to make TypeScript happy
+        reason: appointment.notes,
+        original: appointment,
+        client_name: clientName,
+        status: appointment.status
+      } as TimeBlock);
+    });
+    
+    // Sort the timeline by start time
+    return timeline.sort((a, b) => 
+      timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
@@ -374,6 +488,28 @@ export default function WeeklyView({
           <Button variant="outline" size="sm" onClick={goToNextWeek}>
             <ChevronRight className="h-4 w-4" />
           </Button>
+        </div>
+      </div>
+      
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="show-time-off"
+              checked={showTimeOff}
+              onCheckedChange={setShowTimeOff}
+            />
+            <Label htmlFor="show-time-off">Show Time Off</Label>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="show-appointments"
+              checked={showAppointmentsState}
+              onCheckedChange={setShowAppointmentsState}
+            />
+            <Label htmlFor="show-appointments">Show Appointments</Label>
+          </div>
         </div>
       </div>
       
@@ -448,6 +584,10 @@ export default function WeeklyView({
 
         // Create a unified timeline of availability and time off blocks
         const timelineBlocks = createUnifiedTimeline(dayAvailability, dayExceptions);
+        
+        // Add appointments to the timeline
+        const dayAppointments = getAppointmentsForDay(index);
+        const finalTimelineBlocks = createUnifiedTimelineWithAppointments(timelineBlocks, dayAppointments);
 
         return (
           <div key={day} className="border rounded-lg p-4 shadow-sm">
@@ -474,11 +614,11 @@ export default function WeeklyView({
               </TooltipProvider>
             </div>
             
-            {timelineBlocks.length > 0 ? (
+            {finalTimelineBlocks.length > 0 ? (
               <div className="space-y-1">
-                {timelineBlocks.map((block, blockIndex) => {
+                {finalTimelineBlocks.map((block, blockIndex) => {
                   // Check if this block is a different type than the previous one
-                  const prevBlock = blockIndex > 0 ? timelineBlocks[blockIndex - 1] : null;
+                  const prevBlock = blockIndex > 0 ? finalTimelineBlocks[blockIndex - 1] : null;
                   const showDivider = prevBlock && prevBlock.type !== block.type;
                   
                   return (
@@ -491,19 +631,24 @@ export default function WeeklyView({
                           "flex items-center justify-between py-2 px-3 rounded-md border-l-4",
                           block.type === 'availability' 
                             ? "bg-green-50 border-green-300" 
-                            : "bg-red-50 border-red-300"
+                            : block.type === 'time-off'
+                              ? "bg-red-50 border-red-300"
+                              : "bg-blue-50 border-blue-300"
                         )}
                       >
                         <div>
                           <div className="flex items-center">
                             <span className={cn(
                               "font-medium flex items-center",
-                              block.type === 'availability' ? "text-green-700" : "text-red-700"
+                              block.type === 'availability' ? "text-green-700" : 
+                              block.type === 'time-off' ? "text-red-700" : "text-blue-700"
                             )}>
                               {block.type === 'availability' ? (
                                 <Calendar className="h-4 w-4 mr-1 inline" />
-                              ) : (
+                              ) : block.type === 'time-off' ? (
                                 <Clock className="h-4 w-4 mr-1 inline" />
+                              ) : (
+                                <Users className="h-4 w-4 mr-1 inline" />
                               )}
                               {block.is_all_day ? (
                                 "All Day"
@@ -529,11 +674,11 @@ export default function WeeklyView({
                             </span>
                           </div>
                           <div className="flex items-center mt-0.5">
-                            {block.reason && (
-                              <span className="text-gray-600 text-xs">{block.reason}</span>
-                            )}
                             {block.type === 'availability' && (
                               <span className="text-green-600 text-xs">Available</span>
+                            )}
+                            {block.type === 'appointment' && block.client_name && (
+                              <span className="text-blue-600 text-xs">Appointment with {block.client_name}</span>
                             )}
                           </div>
                         </div>
