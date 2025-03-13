@@ -41,7 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { format, parseISO, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
+import { format, parseISO, isAfter, isBefore, startOfDay, endOfDay, parse } from 'date-fns';
 import { CalendarIcon, ChevronDown, ChevronUp, Eye, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,6 +53,7 @@ import { toast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ConflictResolutionDialog from './components/ConflictResolutionDialog';
 import { TimePickerInput } from '@/components/ui/time-picker-input';
+import { formatDateForInput, createDefaultDate, validateTimeRange, ensureEndTimeAfterStartTime } from '@/app/utils/time-utils';
 
 // Define ClientProfile interface
 interface ClientProfile {
@@ -83,14 +84,29 @@ interface AppointmentWithClient {
   time_zone?: string;
 }
 
+// Add a new field to the form schema for appointmentDate
 const appointmentSchema = z.object({
   clientName: z.string().min(1, 'Client name is required'),
   clientEmail: z.string().email('Invalid email address'),
   clientPhone: z.string().optional(),
+  appointmentDate: z.date({
+    required_error: "Please select a date",
+  }).optional(),
   startTime: z.string().min(1, 'Start time is required'),
   endTime: z.string().min(1, 'End time is required'),
   type: z.string().min(1, 'Appointment type is required'),
   notes: z.string().optional(),
+}).refine((data) => {
+  // Skip validation if either field is missing
+  if (!data.startTime || !data.endTime) return true;
+  
+  // Compare start and end times
+  const startTime = new Date(data.startTime);
+  const endTime = new Date(data.endTime);
+  return endTime > startTime;
+}, {
+  message: "End time must be after start time",
+  path: ["endTime"]
 });
 
 type AppointmentFormValues = z.infer<typeof appointmentSchema>;
@@ -127,10 +143,7 @@ function roundToNearest15Minutes(date: Date): Date {
   return result;
 }
 
-// Helper function to format date for datetime-local input
-function formatDateForInput(date: Date): string {
-  return format(date, "yyyy-MM-dd'T'HH:mm");
-}
+// Remove the duplicate utility functions that are now imported from time-utils.ts
 
 export default function AppointmentsPage() {
   const { user } = useAuth();
@@ -160,6 +173,7 @@ export default function AppointmentsPage() {
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [conflicts, setConflicts] = useState<ConflictCheckResult | null>(null);
   const [pendingAppointmentData, setPendingAppointmentData] = useState<AppointmentFormValues | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<AppointmentFormValues>({
     resolver: zodResolver(appointmentSchema),
@@ -167,8 +181,9 @@ export default function AppointmentsPage() {
       clientName: '',
       clientEmail: '',
       clientPhone: '',
-      startTime: '',
-      endTime: '',
+      appointmentDate: undefined,
+      startTime: createDefaultDate(9), // Default to 9:00 AM
+      endTime: createDefaultDate(10),  // Default to 10:00 AM
       type: '',
       notes: '',
     },
@@ -269,43 +284,80 @@ export default function AppointmentsPage() {
 
   const onSubmit = async (data: AppointmentFormValues) => {
     try {
+      setIsSubmitting(true);
+      
+      // Ensure both start and end times use the selected date
+      if (data.appointmentDate) {
+        const startDate = new Date(data.startTime);
+        const endDate = new Date(data.endTime);
+        
+        // Set dates to match the selected appointment date
+        startDate.setFullYear(data.appointmentDate.getFullYear());
+        startDate.setMonth(data.appointmentDate.getMonth());
+        startDate.setDate(data.appointmentDate.getDate());
+        
+        endDate.setFullYear(data.appointmentDate.getFullYear());
+        endDate.setMonth(data.appointmentDate.getMonth());
+        endDate.setDate(data.appointmentDate.getDate());
+        
+        // Update the form data
+        data.startTime = formatDateForInput(startDate);
+        data.endTime = formatDateForInput(endDate);
+      }
+      
+      // Validate that end time is after start time
+      if (!validateTimeRange(data.startTime, data.endTime)) {
+        form.setError("endTime", {
+          type: "manual",
+          message: "End time must be after start time"
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Check for conflicts
+      const conflictResult = await checkConflicts(data.startTime, data.endTime);
+      
       // Store the form data in case we need it for conflict resolution
       setPendingAppointmentData(data);
       
-      // Attempt to create the appointment
-      const result = await createAppointment({
+      if (conflictResult.hasConflict) {
+        // Show conflict resolution dialog
+        setConflicts(conflictResult);
+        setShowConflictDialog(true);
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // No conflicts, create the appointment
+      await createAppointment({
         clientName: data.clientName,
         clientEmail: data.clientEmail,
         clientPhone: data.clientPhone,
         startTime: data.startTime,
         endTime: data.endTime,
         type: data.type,
-        notes: data.notes,
-        overrideTimeOff: false
+        notes: data.notes
       });
       
-      // Check if there are conflicts that require override
-      if (result.requiresOverride && result.conflicts) {
-        // Store the conflicts and show the conflict dialog
-        setConflicts(result.conflicts);
-        setShowConflictDialog(true);
-        return;
-      }
-      
-      // No conflicts, appointment created successfully
-      setIsDialogOpen(false);
-      form.reset();
       toast({
         title: 'Appointment created',
-        description: 'New appointment has been created successfully.',
+        description: 'The appointment has been successfully created.',
       });
+      
+      // Reset form and close dialog
+      form.reset();
+      setIsDialogOpen(false);
+      refreshAppointments();
     } catch (err) {
       console.error('Failed to create appointment:', err);
       toast({
         title: 'Error',
-        description: 'Failed to create appointment.',
+        description: 'Failed to create appointment. Please try again.',
         variant: 'destructive',
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
   
@@ -315,8 +367,10 @@ export default function AppointmentsPage() {
     
     try {
       // Create the appointment with override flag
+      const { appointmentDate, ...appointmentData } = pendingAppointmentData;
+      
       await createAppointment({
-        ...pendingAppointmentData,
+        ...appointmentData,
         overrideTimeOff: true,
         overrideReason
       });
@@ -442,147 +496,228 @@ export default function AppointmentsPage() {
                       </FormItem>
                     )}
                   />
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <FormField
                       control={form.control}
-                      name="startTime"
+                      name="appointmentDate"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Start Time</FormLabel>
-                          <div className="flex space-x-2">
-                            <div className="flex-1">
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <FormControl>
-                                    <Button
-                                      variant="outline"
-                                      className={cn(
-                                        "w-full pl-3 text-left font-normal",
-                                        !field.value && "text-muted-foreground"
-                                      )}
-                                    >
-                                      {field.value ? (
-                                        format(new Date(field.value), "PPP")
-                                      ) : (
-                                        <span>Pick a date</span>
-                                      )}
-                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                  </FormControl>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                  <Calendar
-                                    mode="single"
-                                    selected={field.value ? new Date(field.value) : undefined}
-                                    onSelect={(date) => {
-                                      if (date) {
-                                        // Preserve the time from the existing value or use current time
-                                        const currentValue = field.value ? new Date(field.value) : roundToNearest15Minutes(new Date());
-                                        const newDate = new Date(date);
-                                        newDate.setHours(currentValue.getHours());
-                                        newDate.setMinutes(currentValue.getMinutes());
-                                        field.onChange(formatDateForInput(newDate));
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Appointment Date</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value ? (
+                                    format(field.value, "PPP")
+                                  ) : (
+                                    <span>Pick a date</span>
+                                  )}
+                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="center" sideOffset={4}>
+                              <div className="w-full min-w-[300px]">
+                                <Calendar
+                                  mode="single"
+                                  selected={field.value}
+                                  onSelect={(date) => {
+                                    if (date) {
+                                      // Update the appointment date
+                                      field.onChange(date);
+                                      
+                                      // Update start time and end time with this date
+                                      const startTimeValue = form.getValues("startTime");
+                                      if (startTimeValue) {
+                                        const startDate = new Date(startTimeValue);
+                                        startDate.setFullYear(date.getFullYear());
+                                        startDate.setMonth(date.getMonth());
+                                        startDate.setDate(date.getDate());
+                                        form.setValue("startTime", formatDateForInput(startDate));
                                       }
-                                    }}
-                                    disabled={{ before: new Date() }}
-                                    initialFocus
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div className="w-[140px]">
-                              <TimePickerInput
-                                value={field.value ? new Date(field.value) : undefined}
-                                onChange={(time: Date) => {
-                                  if (time) {
-                                    // Preserve the date from the existing value or use today
-                                    const currentValue = field.value ? new Date(field.value) : new Date();
-                                    const newDate = new Date(currentValue);
-                                    newDate.setHours(time.getHours());
-                                    newDate.setMinutes(time.getMinutes());
-                                    field.onChange(formatDateForInput(newDate));
-                                  }
-                                }}
-                                minuteIncrement={15}
-                              />
-                            </div>
-                          </div>
+                                      
+                                      const endTimeValue = form.getValues("endTime");
+                                      if (endTimeValue) {
+                                        const endDate = new Date(endTimeValue);
+                                        endDate.setFullYear(date.getFullYear());
+                                        endDate.setMonth(date.getMonth());
+                                        endDate.setDate(date.getDate());
+                                        form.setValue("endTime", formatDateForInput(endDate));
+                                      }
+                                    }
+                                  }}
+                                  disabled={{ before: new Date() }}
+                                  initialFocus
+                                  className="w-full"
+                                />
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="endTime"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>End Time</FormLabel>
-                          <div className="flex space-x-2">
-                            <div className="flex-1">
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <FormControl>
-                                    <Button
-                                      variant="outline"
-                                      className={cn(
-                                        "w-full pl-3 text-left font-normal",
-                                        !field.value && "text-muted-foreground"
-                                      )}
-                                    >
-                                      {field.value ? (
-                                        format(new Date(field.value), "PPP")
-                                      ) : (
-                                        <span>Pick a date</span>
-                                      )}
-                                      <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                  </FormControl>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                  <Calendar
-                                    mode="single"
-                                    selected={field.value ? new Date(field.value) : undefined}
-                                    onSelect={(date) => {
-                                      if (date) {
-                                        // Preserve the time from the existing value or use current time + 1 hour
-                                        const currentValue = field.value ? new Date(field.value) : (() => {
-                                          const now = roundToNearest15Minutes(new Date());
-                                          now.setHours(now.getHours() + 1);
-                                          return now;
-                                        })();
-                                        const newDate = new Date(date);
-                                        newDate.setHours(currentValue.getHours());
-                                        newDate.setMinutes(currentValue.getMinutes());
-                                        field.onChange(formatDateForInput(newDate));
-                                      }
-                                    }}
-                                    disabled={{ before: new Date() }}
-                                    initialFocus
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div className="w-[140px]">
-                              <TimePickerInput
-                                value={field.value ? new Date(field.value) : undefined}
-                                onChange={(time: Date) => {
-                                  if (time) {
-                                    // Preserve the date from the existing value or use today
-                                    const currentValue = field.value ? new Date(field.value) : new Date();
-                                    const newDate = new Date(currentValue);
-                                    newDate.setHours(time.getHours());
-                                    newDate.setMinutes(time.getMinutes());
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="startTime"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Start Time</FormLabel>
+                            <Select
+                              value={field.value ? format(new Date(field.value), "HH:mm") : ""}
+                              onValueChange={(time) => {
+                                if (time) {
+                                  // Get the selected date
+                                  const selectedDate = form.getValues("appointmentDate");
+                                  if (!selectedDate) {
+                                    // If no date is selected, use today
+                                    const today = new Date();
+                                    form.setValue("appointmentDate", today);
+                                    
+                                    const [hours, minutes] = time.split(':').map(Number);
+                                    const newDate = new Date(today);
+                                    newDate.setHours(hours);
+                                    newDate.setMinutes(minutes);
                                     field.onChange(formatDateForInput(newDate));
+                                    
+                                    // Update end time to be 1 hour later if needed
+                                    const endTimeValue = form.getValues("endTime");
+                                    if (endTimeValue) {
+                                      const endDate = new Date(endTimeValue);
+                                      const updatedEndTime = ensureEndTimeAfterStartTime(
+                                        formatDateForInput(newDate),
+                                        formatDateForInput(endDate)
+                                      );
+                                      form.setValue("endTime", updatedEndTime);
+                                    }
+                                  } else {
+                                    // Use the selected date
+                                    const [hours, minutes] = time.split(':').map(Number);
+                                    const newDate = new Date(selectedDate);
+                                    newDate.setHours(hours);
+                                    newDate.setMinutes(minutes);
+                                    field.onChange(formatDateForInput(newDate));
+                                    
+                                    // Update end time to be 1 hour later if needed
+                                    const endTimeValue = form.getValues("endTime");
+                                    if (endTimeValue) {
+                                      const endDate = new Date(endTimeValue);
+                                      const updatedEndTime = ensureEndTimeAfterStartTime(
+                                        formatDateForInput(newDate),
+                                        formatDateForInput(endDate)
+                                      );
+                                      form.setValue("endTime", updatedEndTime);
+                                    }
                                   }
-                                }}
-                                minuteIncrement={15}
-                              />
-                            </div>
-                          </div>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select time" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[200px] overflow-y-auto">
+                                {Array.from({ length: 24 * 4 }, (_, i) => {
+                                  const hours = Math.floor(i / 4);
+                                  const minutes = (i % 4) * 15;
+                                  const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                  const displayTime = format(parse(timeString, "HH:mm", new Date()), "h:mm a");
+                                  return (
+                                    <SelectItem key={timeString} value={timeString}>
+                                      {displayTime}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="endTime"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>End Time</FormLabel>
+                            <Select
+                              value={field.value ? format(new Date(field.value), "HH:mm") : ""}
+                              onValueChange={(time) => {
+                                if (time) {
+                                  // Get the selected date
+                                  const selectedDate = form.getValues("appointmentDate");
+                                  if (!selectedDate) {
+                                    // If no date is selected, use today
+                                    const today = new Date();
+                                    form.setValue("appointmentDate", today);
+                                    
+                                    const [hours, minutes] = time.split(':').map(Number);
+                                    const newDate = new Date(today);
+                                    newDate.setHours(hours);
+                                    newDate.setMinutes(minutes);
+                                    field.onChange(formatDateForInput(newDate));
+                                    
+                                    // Update end time to be 1 hour later if needed
+                                    const endTimeValue = form.getValues("endTime");
+                                    if (endTimeValue) {
+                                      const endDate = new Date(endTimeValue);
+                                      const updatedEndTime = ensureEndTimeAfterStartTime(
+                                        formatDateForInput(newDate),
+                                        formatDateForInput(endDate)
+                                      );
+                                      form.setValue("endTime", updatedEndTime);
+                                    }
+                                  } else {
+                                    // Use the selected date
+                                    const [hours, minutes] = time.split(':').map(Number);
+                                    const newDate = new Date(selectedDate);
+                                    newDate.setHours(hours);
+                                    newDate.setMinutes(minutes);
+                                    field.onChange(formatDateForInput(newDate));
+                                    
+                                    // Update end time to be 1 hour later if needed
+                                    const endTimeValue = form.getValues("endTime");
+                                    if (endTimeValue) {
+                                      const endDate = new Date(endTimeValue);
+                                      const updatedEndTime = ensureEndTimeAfterStartTime(
+                                        formatDateForInput(newDate),
+                                        formatDateForInput(endDate)
+                                      );
+                                      form.setValue("endTime", updatedEndTime);
+                                    }
+                                  }
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select time" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[200px] overflow-y-auto">
+                                {Array.from({ length: 24 * 4 }, (_, i) => {
+                                  const hours = Math.floor(i / 4);
+                                  const minutes = (i % 4) * 15;
+                                  const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                  const displayTime = format(parse(timeString, "HH:mm", new Date()), "h:mm a");
+                                  return (
+                                    <SelectItem key={timeString} value={timeString}>
+                                      {displayTime}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
                   <FormField
                     control={form.control}
@@ -625,7 +760,7 @@ export default function AppointmentsPage() {
                     <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} className="min-w-[100px]">
                       Cancel
                     </Button>
-                    <Button type="submit" className="min-w-[100px]">
+                    <Button type="submit" className="min-w-[100px]" disabled={isSubmitting}>
                       Create Appointment
                     </Button>
                   </DialogFooter>
@@ -681,7 +816,7 @@ export default function AppointmentsPage() {
                   {dateFilter ? format(dateFilter, "PPP") : "Pick a date"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
+              <PopoverContent className="w-auto min-w-[250px] p-0">
                 <Calendar
                   mode="single"
                   selected={dateFilter}
@@ -760,8 +895,22 @@ export default function AppointmentsPage() {
                 <TableRow key={appointment.id}>
                   <TableCell>
                     {appointment.formatted_start_time 
-                      ? format(new Date(appointment.formatted_start_time), 'MMM d, yyyy h:mm a')
-                      : format(new Date(appointment.start_time), 'MMM d, yyyy h:mm a')}
+                      ? (
+                        <>
+                          {format(new Date(appointment.formatted_start_time), 'MMM d, yyyy h:mm a')}
+                          {appointment.formatted_end_time && (
+                            <> - {format(new Date(appointment.formatted_end_time), 'h:mm a')}</>
+                          )}
+                        </>
+                      )
+                      : (
+                        <>
+                          {format(new Date(appointment.start_time), 'MMM d, yyyy h:mm a')}
+                          {appointment.end_time && (
+                            <> - {format(new Date(appointment.end_time), 'h:mm a')}</>
+                          )}
+                        </>
+                      )}
                   </TableCell>
                   <TableCell>{appointment.client?.name || 'Unknown Client'}</TableCell>
                   <TableCell>

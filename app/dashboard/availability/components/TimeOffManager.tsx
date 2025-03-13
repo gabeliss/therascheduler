@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Trash2, Plus, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
+import { Trash2, Plus, Clock, Calendar as CalendarIcon, Loader2, AlertCircle } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { formatTime, DAYS_OF_WEEK, TIME_OPTIONS, validateTimeRange } from '../utils/time-utils';
 import { Calendar } from '@/components/ui/calendar';
@@ -28,6 +28,9 @@ import { ExceptionFormValues } from '../utils/schemas';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { Checkbox } from '@/components/ui/checkbox';
 import DateRangeSelector from './DateRangeSelector';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useAppointments } from '@/app/hooks/use-appointments';
+import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 
 interface TimeOffManagerProps {
   isOpen: boolean;
@@ -57,8 +60,10 @@ export default function TimeOffManager({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAllDay, setIsAllDay] = useState(false);
+  const [appointmentClashError, setAppointmentClashError] = useState<string | null>(null);
   
   const { checkForOverlaps } = useUnifiedAvailability();
+  const { appointments, loading: appointmentsLoading } = useAppointments();
   
   // Reset form when tab changes
   useEffect(() => {
@@ -66,6 +71,7 @@ export default function TimeOffManager({
     setEndTime('17:00');
     setReason('');
     setError(null);
+    setAppointmentClashError(null);
     setIsAllDay(false);
     
     if (activeTab === 'recurring') {
@@ -80,6 +86,62 @@ export default function TimeOffManager({
       setEndDate(new Date());
     }
   }, [activeTab]);
+  
+  // Check for appointment clashes when form values change
+  useEffect(() => {
+    // Only check if we have appointments and the dialog is open
+    if (!appointmentsLoading && appointments.length > 0 && isOpen) {
+      checkForAppointmentClashes();
+    }
+  }, [startTime, endTime, isAllDay, selectedDays, startDate, endDate, activeTab, appointments, appointmentsLoading, isOpen]);
+  
+  // Function to check for appointment clashes
+  const checkForAppointmentClashes = () => {
+    // Clear previous error
+    setAppointmentClashError(null);
+    
+    // Skip if appointments are still loading
+    if (appointmentsLoading) return;
+    
+    if (activeTab === 'recurring') {
+      // Check each selected day for clashes
+      for (const dayIndex of selectedDays) {
+        const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
+        
+        const clash = checkTimeOffAppointmentClash({
+          startTime: `${startTime}:00`,
+          endTime: `${endTime}:00`,
+          isRecurring: true,
+          dayOfWeek: adjustedDayIndex,
+          isAllDay,
+          appointments
+        });
+        
+        if (clash) {
+          setAppointmentClashError(clash.message);
+          return; // Stop checking after first clash
+        }
+      }
+    } else if (activeTab === 'specific' && startDate && endDate) {
+      // Check specific date range for clashes
+      const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+      const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+      
+      const clash = checkTimeOffAppointmentClash({
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        startTime: `${startTime}:00`,
+        endTime: `${endTime}:00`,
+        isRecurring: false,
+        isAllDay,
+        appointments
+      });
+      
+      if (clash) {
+        setAppointmentClashError(clash.message);
+      }
+    }
+  };
   
   // Apply time presets
   const applyTimePreset = (preset: 'fullDay' | 'morning' | 'afternoon') => {
@@ -184,6 +246,45 @@ export default function TimeOffManager({
       }
     }
     
+    // Check for appointment clashes
+    if (activeTab === 'recurring') {
+      for (const dayIndex of selectedDays) {
+        const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
+        
+        const clash = checkTimeOffAppointmentClash({
+          startTime: `${startTime}:00`,
+          endTime: `${endTime}:00`,
+          isRecurring: true,
+          dayOfWeek: adjustedDayIndex,
+          isAllDay,
+          appointments
+        });
+        
+        if (clash) {
+          setError(clash.message);
+          return;
+        }
+      }
+    } else if (activeTab === 'specific' && startDate && endDate) {
+      const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+      const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+      
+      const clash = checkTimeOffAppointmentClash({
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        startTime: `${startTime}:00`,
+        endTime: `${endTime}:00`,
+        isRecurring: false,
+        isAllDay,
+        appointments
+      });
+      
+      if (clash) {
+        setError(clash.message);
+        return;
+      }
+    }
+    
     setIsSubmitting(true);
     
     try {
@@ -251,10 +352,11 @@ export default function TimeOffManager({
           return;
         }
         
+        // Format dates as YYYY-MM-DD
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
-        // Check for overlaps for the date range
+        // Check for overlaps
         const hasOverlap = checkForOverlaps(
           startTime,
           endTime,
@@ -265,12 +367,12 @@ export default function TimeOffManager({
         );
         
         if (hasOverlap) {
-          setError(`This time range overlaps with existing time off. Please choose a different time range.`);
+          setError('This time range overlaps with existing time off. Please choose a different time range.');
           setIsSubmitting(false);
           return;
         }
         
-        // Add time off for the date range
+        // Add the time off
         await onAddException({
           startTime,
           endTime,
@@ -282,19 +384,11 @@ export default function TimeOffManager({
         });
       }
       
-      // Reset form
-      setStartTime('09:00');
-      setEndTime('17:00');
-      setReason('');
-      setSelectedDays([]);
-      setStartDate(undefined);
-      setEndDate(undefined);
-      setIsAllDay(false);
-      
-      // Close the modal
+      // Reset form and close dialog
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Error adding time off:', err);
+      setError('Failed to add time off. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -315,6 +409,26 @@ export default function TimeOffManager({
             <TabsTrigger value="recurring">Regular Breaks</TabsTrigger>
             <TabsTrigger value="specific">Time Away</TabsTrigger>
           </TabsList>
+          
+          {/* Display error message if there is one */}
+          {error && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {error}
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {/* Display appointment clash warning */}
+          {appointmentClashError && !error && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {appointmentClashError}
+              </AlertDescription>
+            </Alert>
+          )}
           
           <TabsContent value="recurring" className="space-y-4 mt-4">
             <div className="space-y-4">
@@ -501,27 +615,21 @@ export default function TimeOffManager({
           </TabsContent>
         </Tabs>
         
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-            {error}
-          </div>
-        )}
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+        <div className="flex justify-end mt-6">
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting || !!appointmentClashError}
+          >
             {isSubmitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Saving...
               </>
             ) : (
-              'Save'
+              'Add Time Off'
             )}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

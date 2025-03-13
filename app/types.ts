@@ -23,7 +23,7 @@ export interface Appointment {
   client_id: string;
   start_time: string;
   end_time: string;
-  status: 'scheduled' | 'completed' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   notes: string;
   created_at: string;
   updated_at: string;

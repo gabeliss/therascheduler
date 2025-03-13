@@ -394,6 +394,13 @@ export default function WeeklyView({
     const formattedDate = format(currentDayDate, 'yyyy-MM-dd');
     
     return appointments.filter(appointment => {
+      // First filter by status - only show confirmed/scheduled or completed appointments
+      const status = appointment.status as string;
+      if (status !== 'confirmed' && status !== 'scheduled' && status !== 'completed') {
+        return false;
+      }
+      
+      // Then filter by date
       // Use the date_string property if available
       if ('date_string' in appointment && appointment.date_string) {
         return appointment.date_string === formattedDate;
@@ -415,10 +422,8 @@ export default function WeeklyView({
       return availabilityBlocks;
     }
 
-    const timeline = [...availabilityBlocks];
-    
-    // Add appointments to the timeline
-    dayAppointments.forEach(appointment => {
+    // Convert appointments to TimeBlock format
+    const appointmentBlocks: TimeBlock[] = dayAppointments.map(appointment => {
       // Get the correct start and end times
       let startTimeStr, endTimeStr;
       
@@ -455,21 +460,93 @@ export default function WeeklyView({
         clientName = appointment.client.name as string;
       }
       
-      timeline.push({
+      return {
         id: `appointment-${appointment.id}`,
         start_time: startTimeStr,
         end_time: endTimeStr,
         is_recurring: false,
         type: 'appointment' as any, // Type assertion to make TypeScript happy
-        reason: appointment.notes,
+        reason: appointment.notes, // Keep reason for internal use, but we won't display it
         original: appointment,
         client_name: clientName,
         status: appointment.status
-      } as TimeBlock);
+      } as TimeBlock;
+    });
+
+    // If there are no availability blocks, just return the appointment blocks
+    if (availabilityBlocks.length === 0) {
+      return appointmentBlocks.sort((a, b) => 
+        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+      );
+    }
+
+    // Create a unified timeline by splitting availability blocks around appointment blocks
+    let unifiedBlocks: TimeBlock[] = [];
+
+    // Process each availability block
+    availabilityBlocks.forEach(availBlock => {
+      const availStartMinutes = timeToMinutes(availBlock.start_time);
+      const availEndMinutes = timeToMinutes(availBlock.end_time);
+      
+      // Find all overlapping appointment blocks
+      const overlappingAppointments = appointmentBlocks.filter(apptBlock => {
+        const apptStartMinutes = timeToMinutes(apptBlock.start_time);
+        const apptEndMinutes = timeToMinutes(apptBlock.end_time);
+        
+        return (
+          (apptStartMinutes >= availStartMinutes && apptStartMinutes < availEndMinutes) ||
+          (apptEndMinutes > availStartMinutes && apptEndMinutes <= availEndMinutes) ||
+          (apptStartMinutes <= availStartMinutes && apptEndMinutes >= availEndMinutes)
+        );
+      }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+      
+      // If no overlapping appointments, add the availability block as is
+      if (overlappingAppointments.length === 0) {
+        unifiedBlocks.push(availBlock);
+        return;
+      }
+      
+      // Split the availability block around the appointment blocks
+      let currentStartMinutes = availStartMinutes;
+      
+      overlappingAppointments.forEach(apptBlock => {
+        const apptStartMinutes = timeToMinutes(apptBlock.start_time);
+        const apptEndMinutes = timeToMinutes(apptBlock.end_time);
+        
+        // Add availability block before the appointment if there's a gap
+        if (currentStartMinutes < apptStartMinutes) {
+          unifiedBlocks.push({
+            ...availBlock,
+            id: `${availBlock.id}-split-${currentStartMinutes}-${apptStartMinutes}`,
+            start_time: minutesToTimeString(currentStartMinutes),
+            end_time: minutesToTimeString(apptStartMinutes),
+            original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+            is_all_day: availBlock.is_all_day
+          });
+        }
+        
+        // Add the appointment block
+        unifiedBlocks.push(apptBlock);
+        
+        // Update the current start time to after this appointment block
+        currentStartMinutes = Math.max(currentStartMinutes, apptEndMinutes);
+      });
+      
+      // Add the final availability block after all appointment blocks if needed
+      if (currentStartMinutes < availEndMinutes) {
+        unifiedBlocks.push({
+          ...availBlock,
+          id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
+          start_time: minutesToTimeString(currentStartMinutes),
+          end_time: minutesToTimeString(availEndMinutes),
+          original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+          is_all_day: availBlock.is_all_day
+        });
+      }
     });
     
-    // Sort the timeline by start time
-    return timeline.sort((a, b) => 
+    // Sort the unified blocks by start time
+    return unifiedBlocks.sort((a, b) => 
       timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
     );
   };
@@ -674,6 +751,9 @@ export default function WeeklyView({
                             </span>
                           </div>
                           <div className="flex items-center mt-0.5">
+                            {block.type === 'time-off' && block.reason && (
+                              <span className="text-gray-600 text-xs">{block.reason}</span>
+                            )}
                             {block.type === 'availability' && (
                               <span className="text-green-600 text-xs">Available</span>
                             )}

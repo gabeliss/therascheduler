@@ -329,7 +329,8 @@ export default function UnifiedCalendarView({
     
     // Add appointment slots to timeline
     if (showAppointments && appointmentSlots.length > 0) {
-      appointmentSlots.forEach(appointment => {
+      // Convert appointments to TimeBlock format
+      const appointmentBlocks: TimeBlock[] = appointmentSlots.map(appointment => {
         // Get the correct start and end times
         let startTimeStr, endTimeStr;
         
@@ -366,7 +367,7 @@ export default function UnifiedCalendarView({
           clientName = appointment.client.name as string;
         }
         
-        unifiedBlocks.push({
+        return {
           id: appointment.id,
           start_time: startTimeStr,
           end_time: endTimeStr,
@@ -378,8 +379,78 @@ export default function UnifiedCalendarView({
           end_date: format(new Date(appointment.end_time), 'yyyy-MM-dd'),
           client_name: clientName,
           status: appointment.status
-        });
+        };
       });
+
+      // Split availability blocks around appointments
+      const availabilityBlocksToProcess = [...unifiedBlocks].filter(block => block.type === 'availability');
+      const otherBlocks = unifiedBlocks.filter(block => block.type !== 'availability');
+      
+      let processedBlocks: TimeBlock[] = [...otherBlocks];
+      
+      // Process each availability block
+      availabilityBlocksToProcess.forEach(availBlock => {
+        const availStartMinutes = timeToMinutes(availBlock.start_time);
+        const availEndMinutes = timeToMinutes(availBlock.end_time);
+        
+        // Find all overlapping appointment blocks
+        const overlappingAppointments = appointmentBlocks.filter(apptBlock => {
+          const apptStartMinutes = timeToMinutes(apptBlock.start_time);
+          const apptEndMinutes = timeToMinutes(apptBlock.end_time);
+          
+          return (
+            (apptStartMinutes >= availStartMinutes && apptStartMinutes < availEndMinutes) ||
+            (apptEndMinutes > availStartMinutes && apptEndMinutes <= availEndMinutes) ||
+            (apptStartMinutes <= availStartMinutes && apptEndMinutes >= availEndMinutes)
+          );
+        }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+        
+        // If no overlapping appointments, add the availability block as is
+        if (overlappingAppointments.length === 0) {
+          processedBlocks.push(availBlock);
+          return;
+        }
+        
+        // Split the availability block around the appointment blocks
+        let currentStartMinutes = availStartMinutes;
+        
+        overlappingAppointments.forEach(apptBlock => {
+          const apptStartMinutes = timeToMinutes(apptBlock.start_time);
+          const apptEndMinutes = timeToMinutes(apptBlock.end_time);
+          
+          // Add availability block before the appointment if there's a gap
+          if (currentStartMinutes < apptStartMinutes) {
+            processedBlocks.push({
+              ...availBlock,
+              id: `${availBlock.id}-split-${currentStartMinutes}-${apptStartMinutes}`,
+              start_time: minutesToTimeString(currentStartMinutes),
+              end_time: minutesToTimeString(apptStartMinutes),
+              original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+              is_all_day: availBlock.is_all_day
+            });
+          }
+          
+          // Add the appointment block
+          processedBlocks.push(apptBlock);
+          
+          // Update the current start time to after this appointment block
+          currentStartMinutes = Math.max(currentStartMinutes, apptEndMinutes);
+        });
+        
+        // Add the final availability block after all appointment blocks if needed
+        if (currentStartMinutes < availEndMinutes) {
+          processedBlocks.push({
+            ...availBlock,
+            id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
+            start_time: minutesToTimeString(currentStartMinutes),
+            end_time: minutesToTimeString(availEndMinutes),
+            original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
+            is_all_day: availBlock.is_all_day
+          });
+        }
+      });
+      
+      unifiedBlocks = processedBlocks;
     }
     
     // Sort the unified blocks by start time
@@ -435,6 +506,13 @@ export default function UnifiedCalendarView({
     
     // Get appointments for this date
     const dateAppointments = appointments.filter(appointment => {
+      // First filter by status - only show confirmed/scheduled or completed appointments
+      const status = appointment.status as string;
+      if (status !== 'confirmed' && status !== 'scheduled' && status !== 'completed') {
+        return false;
+      }
+      
+      // Then filter by date
       // Use the date_string property if available, otherwise calculate it
       if ('date_string' in appointment && appointment.date_string) {
         return appointment.date_string === dateString;
@@ -474,16 +552,8 @@ export default function UnifiedCalendarView({
       blockClass = 'bg-red-100 border-red-300 text-red-800';
       blockTitle = block.reason || (block.is_recurring ? 'Recurring Time Off' : 'Time Off');
     } else if (block.type === 'appointment') {
-      // Different colors based on appointment status
-      if (block.status === 'confirmed') {
-        blockClass = 'bg-blue-100 border-blue-300 text-blue-800';
-      } else if (block.status === 'pending') {
-        blockClass = 'bg-yellow-100 border-yellow-300 text-yellow-800';
-      } else if (block.status === 'cancelled') {
-        blockClass = 'bg-gray-100 border-gray-300 text-gray-800';
-      } else {
-        blockClass = 'bg-purple-100 border-purple-300 text-purple-800';
-      }
+      // Always use blue for appointments in the calendar view
+      blockClass = 'bg-blue-100 border-blue-300 text-blue-800';
       blockTitle = `Appointment${block.client_name ? ` with ${block.client_name}` : ''}`;
     }
     
@@ -502,11 +572,11 @@ export default function UnifiedCalendarView({
             <Users className="h-3 w-3 ml-1" />
           )}
         </div>
-        {block.reason && (
+        {block.type === 'time-off' && block.reason && (
           <div className="truncate text-xs opacity-80">{block.reason}</div>
         )}
         {block.client_name && block.type === 'appointment' && (
-          <div className="truncate text-xs opacity-80">{block.client_name}</div>
+          <div className="truncate text-xs opacity-80">Appointment with {block.client_name}</div>
         )}
       </div>
     );
@@ -646,6 +716,28 @@ export default function UnifiedCalendarView({
                           <Edit className="h-3 w-3 text-green-700" />
                         </Button>
                       )}
+                    </div>
+                  );
+                } else if (block.type === 'appointment') {
+                  // Appointment block
+                  return (
+                    <div
+                      key={block.id}
+                      className="text-xs bg-blue-100 text-blue-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-blue-300 shadow-sm group hover:bg-blue-200 transition-colors"
+                      title={block.client_name ? `Appointment with ${block.client_name}` : 'Appointment'}
+                    >
+                      <div className="flex items-center gap-1">
+                        <Users className="h-3 w-3 text-blue-600 flex-shrink-0" />
+                        <span className="font-medium">
+                          {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
+                          {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                          {block.client_name && (
+                            <span className="ml-1 text-blue-700">
+                              (with {block.client_name})
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     </div>
                   );
                 } else {

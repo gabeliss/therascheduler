@@ -134,20 +134,41 @@ export const formatDate = (dateString: string | undefined) => {
   }
 };
 
-// Validate time range
-export function validateTimeRange(startTime: string, endTime: string): { isValid: boolean; errorMessage?: string } {
-  if (!startTime || !endTime) {
-    return { isValid: false, errorMessage: 'Start and end times are required' };
+// Format a date for datetime-local input
+export function formatDateForInput(date: Date): string {
+  return format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
+// Create a default date with specific hours
+export function createDefaultDate(hours: number, minutes: number = 0): string {
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return formatDateForInput(date);
+}
+
+// Validate that end time is after start time
+export function validateTimeRange(startTime: string, endTime: string): boolean {
+  if (!startTime || !endTime) return true;
+  
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  
+  return end > start;
+}
+
+// Ensure end time is after start time, adjusting if necessary
+export function ensureEndTimeAfterStartTime(startTime: string, endTime: string, minDurationMinutes: number = 60): string {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  
+  if (end <= start) {
+    // Set end time to be minDurationMinutes after start time
+    const newEnd = new Date(start);
+    newEnd.setMinutes(start.getMinutes() + minDurationMinutes);
+    return formatDateForInput(newEnd);
   }
   
-  const startIndex = findTimeIndex(startTime);
-  const endIndex = findTimeIndex(endTime);
-  
-  if (endIndex <= startIndex) {
-    return { isValid: false, errorMessage: 'End time must be after start time' };
-  }
-  
-  return { isValid: true };
+  return endTime;
 }
 
 // Get day name from day of week number

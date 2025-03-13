@@ -21,6 +21,10 @@ import { UnifiedAvailabilityException } from '@/app/types/index';
 import { Calendar } from '@/components/ui/calendar';
 import { Checkbox } from '@/components/ui/checkbox';
 import DateRangeSelector from './DateRangeSelector';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
+import { useAppointments } from '@/app/hooks/use-appointments';
+import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 
 interface EditTimeOffDialogProps {
   isOpen: boolean;
@@ -43,6 +47,9 @@ const EditTimeOffDialog = ({
   const [isAllDay, setIsAllDay] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [appointmentClashError, setAppointmentClashError] = useState<string | null>(null);
+  
+  const { appointments, loading: appointmentsLoading } = useAppointments();
 
   // Reset form when exception changes
   useEffect(() => {
@@ -65,6 +72,51 @@ const EditTimeOffDialog = ({
       }
     }
   }, [exception]);
+
+  // Check for appointment clashes when form values change
+  useEffect(() => {
+    // Only check if we have appointments, the dialog is open, and we have an exception
+    if (!appointmentsLoading && appointments.length > 0 && isOpen && exception) {
+      checkForAppointmentClashes();
+    }
+  }, [startTime, endTime, isAllDay, startDate, endDate, appointments, appointmentsLoading, isOpen, exception]);
+
+  // Function to check for appointment clashes
+  const checkForAppointmentClashes = () => {
+    // Clear previous error
+    setAppointmentClashError(null);
+    
+    // Skip if appointments are still loading or no exception
+    if (appointmentsLoading || !exception) return;
+    
+    // Prepare data for clash check
+    let formattedStartDate, formattedEndDate;
+    
+    if (!exception.is_recurring && startDate && endDate) {
+      formattedStartDate = format(startDate, 'yyyy-MM-dd');
+      formattedEndDate = format(endDate, 'yyyy-MM-dd');
+    } else if (!exception.is_recurring && exception.start_date && exception.end_date) {
+      formattedStartDate = exception.start_date;
+      formattedEndDate = exception.end_date;
+    }
+    
+    // Check for clashes
+    const clash = checkTimeOffAppointmentClash({
+      startDate: formattedStartDate,
+      endDate: formattedEndDate,
+      startTime: `${startTime}`,
+      endTime: `${endTime}`,
+      isRecurring: exception.is_recurring,
+      dayOfWeek: exception.is_recurring ? exception.day_of_week : undefined,
+      isAllDay,
+      appointments
+    });
+    
+    // Set error message if there's a clash
+    if (clash) {
+      setAppointmentClashError(clash.message);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!exception) return;
@@ -93,6 +145,23 @@ const EditTimeOffDialog = ({
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
+        // Check for appointment clashes
+        const clash = checkTimeOffAppointmentClash({
+          startDate: formattedStartDate,
+          endDate: formattedEndDate,
+          startTime,
+          endTime,
+          isRecurring: false,
+          isAllDay,
+          appointments
+        });
+        
+        if (clash) {
+          setError(clash.message);
+          setIsSubmitting(false);
+          return;
+        }
+        
         await onSave(
           exception.id, 
           startTime, 
@@ -103,6 +172,22 @@ const EditTimeOffDialog = ({
           isAllDay
         );
       } else {
+        // For recurring exceptions, check for appointment clashes
+        const clash = checkTimeOffAppointmentClash({
+          startTime,
+          endTime,
+          isRecurring: true,
+          dayOfWeek: exception.day_of_week,
+          isAllDay,
+          appointments
+        });
+        
+        if (clash) {
+          setError(clash.message);
+          setIsSubmitting(false);
+          return;
+        }
+        
         // For recurring exceptions, just pass the time and reason
         await onSave(exception.id, startTime, endTime, reason);
       }
@@ -161,6 +246,26 @@ const EditTimeOffDialog = ({
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
+          {/* Display error message if there is one */}
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {error}
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {/* Display appointment clash warning */}
+          {appointmentClashError && !error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                {appointmentClashError}
+              </AlertDescription>
+            </Alert>
+          )}
+          
           {/* Date Selection for non-recurring exceptions */}
           {!exception.is_recurring && (
             <div className="space-y-4">
@@ -256,10 +361,6 @@ const EditTimeOffDialog = ({
           </div>
         </div>
         
-        {error && (
-          <div className="text-red-500 text-sm">{error}</div>
-        )}
-        
         <DialogFooter className="flex justify-center gap-4 mt-6 sm:justify-center">
           <Button
             type="button"
@@ -273,7 +374,7 @@ const EditTimeOffDialog = ({
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !!appointmentClashError}
             className="min-w-[100px]"
           >
             {isSubmitting ? 'Saving...' : 'Save Changes'}

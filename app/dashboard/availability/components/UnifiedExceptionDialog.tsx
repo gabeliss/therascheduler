@@ -37,6 +37,8 @@ import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { TIME_OPTIONS, DAYS_OF_WEEK, BUSINESS_HOURS, validateTimeRange } from '../utils/time-utils';
 import { format } from 'date-fns';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
+import { useAppointments } from '@/app/hooks/use-appointments';
+import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 
 interface UnifiedExceptionDialogProps {
   isOpen: boolean;
@@ -60,11 +62,13 @@ const UnifiedExceptionDialog = ({
   const [selectedDay, setSelectedDay] = useState<number | undefined>(
     specificDate ? specificDate.getDay() : undefined
   );
+  const [appointmentClashError, setAppointmentClashError] = useState<string | null>(null);
   
   // For now, we're always creating new blocks, not editing
   const isEditing = false;
   
   const { checkForOverlaps } = useUnifiedAvailability();
+  const { appointments, loading: appointmentsLoading } = useAppointments();
 
   const form = useForm<ExceptionFormValues>({
     resolver: zodResolver(refinedExceptionSchema),
@@ -97,6 +101,7 @@ const UnifiedExceptionDialog = ({
   // Watch for changes to start/end time to check for overlaps
   const startTime = form.watch('startTime');
   const endTime = form.watch('endTime');
+  const isAllDay = form.watch('isAllDay');
 
   // Update form when recurring checkbox changes
   useEffect(() => {
@@ -129,6 +134,51 @@ const UnifiedExceptionDialog = ({
     }
   }, [isOpen, specificDate, externalSelectedDate]);
 
+  // Check for appointment clashes when form values change
+  useEffect(() => {
+    // Only check if we have appointments and the dialog is open
+    if (!appointmentsLoading && appointments.length > 0 && isOpen) {
+      checkForAppointmentClashes();
+    }
+  }, [startTime, endTime, isRecurringBlock, selectedDay, selectedDate, isAllDay, appointments, appointmentsLoading, isOpen]);
+
+  // Function to check for appointment clashes
+  const checkForAppointmentClashes = () => {
+    // Clear previous error
+    setAppointmentClashError(null);
+    
+    // Skip if appointments are still loading
+    if (appointmentsLoading) return;
+    
+    // Prepare data for clash check
+    let startDate, endDate;
+    
+    if (!isRecurringBlock && selectedDate) {
+      startDate = format(selectedDate, 'yyyy-MM-dd');
+      endDate = startDate;
+    } else if (!isRecurringBlock && specificDate) {
+      startDate = format(specificDate, 'yyyy-MM-dd');
+      endDate = startDate;
+    }
+    
+    // Check for clashes
+    const clash = checkTimeOffAppointmentClash({
+      startDate,
+      endDate,
+      startTime: `${startTime}:00`,
+      endTime: `${endTime}:00`,
+      isRecurring: isRecurringBlock,
+      dayOfWeek: isRecurringBlock ? selectedDay : undefined,
+      isAllDay,
+      appointments
+    });
+    
+    // Set error message if there's a clash
+    if (clash) {
+      setAppointmentClashError(clash.message);
+    }
+  };
+
   const handleSubmit = async (data: ExceptionFormValues) => {
     setIsSubmitting(true);
     setError(null);
@@ -151,6 +201,34 @@ const UnifiedExceptionDialog = ({
       
       if (isRecurringBlock && selectedDay === undefined) {
         setError('Please select a day of the week');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Check for appointment clashes
+      let startDate, endDate;
+      
+      if (!isRecurringBlock && selectedDate) {
+        startDate = format(selectedDate, 'yyyy-MM-dd');
+        endDate = startDate;
+      } else if (!isRecurringBlock && specificDate) {
+        startDate = format(specificDate, 'yyyy-MM-dd');
+        endDate = startDate;
+      }
+      
+      const clash = checkTimeOffAppointmentClash({
+        startDate,
+        endDate,
+        startTime: `${data.startTime}:00`,
+        endTime: `${data.endTime}:00`,
+        isRecurring: isRecurringBlock,
+        dayOfWeek: isRecurringBlock ? selectedDay : undefined,
+        isAllDay: data.isAllDay,
+        appointments
+      });
+      
+      if (clash) {
+        setError(clash.message);
         setIsSubmitting(false);
         return;
       }
@@ -221,6 +299,16 @@ const UnifiedExceptionDialog = ({
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   {error}
+                </AlertDescription>
+              </Alert>
+            )}
+            
+            {/* Display appointment clash warning */}
+            {appointmentClashError && !error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {appointmentClashError}
                 </AlertDescription>
               </Alert>
             )}
