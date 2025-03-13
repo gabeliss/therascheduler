@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { AvailabilityConflict, TimeOffConflict } from '@/app/hooks/use-appointments';
 import { AlertCircle, Calendar, Clock } from 'lucide-react';
 import { format } from 'date-fns';
+import { formatTime } from '@/app/utils/time-utils';
 
 interface ConflictResolutionDialogProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export default function ConflictResolutionDialog({
               
               {timeOffConflict.exception.is_recurring ? (
                 <div className="mt-2 text-xs text-red-600">
-                  <p>Recurring time-off: {timeOffConflict.exception.start_time} - {timeOffConflict.exception.end_time}</p>
+                  <p>Recurring time-off: {formatTime(timeOffConflict.exception.start_time)} - {formatTime(timeOffConflict.exception.end_time)}</p>
                 </div>
               ) : (
                 <div className="mt-2 text-xs text-red-600">

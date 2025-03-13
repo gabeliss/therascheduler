@@ -4,6 +4,7 @@ import { Appointment } from '@/app/types';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { useTherapistProfile } from './use-therapist-profile';
 import { format, parseISO, isWithinInterval, isSameDay } from 'date-fns';
+import { timeToMinutes } from '@/app/utils/time-utils';
 
 // Define conflict types
 export interface AvailabilityConflict {
@@ -212,7 +213,14 @@ export function useAppointments() {
           const appointmentTimeOnly = format(startDate, 'HH:mm:ss');
           
           // Check if appointment time overlaps with recurring time-off
-          if (appointmentTimeOnly >= exceptionStart && appointmentTimeOnly <= exceptionEnd) {
+          // Convert times to minutes for proper comparison
+          const apptStart = timeToMinutes(appointmentTimeOnly);
+          const apptEnd = timeToMinutes(format(endDate, 'HH:mm:ss'));
+          const exStart = timeToMinutes(exceptionStart);
+          const exEnd = timeToMinutes(exceptionEnd);
+          
+          // Check for any overlap between the two time ranges
+          if (!(apptEnd <= exStart || apptStart >= exEnd)) {
             return {
               type: 'time_off',
               exception,
@@ -241,7 +249,16 @@ export function useAppointments() {
             
             // For time-specific time-off, check time overlap
             const appointmentTimeOnly = format(startDate, 'HH:mm:ss');
-            if (appointmentTimeOnly >= exception.start_time && appointmentTimeOnly <= exception.end_time) {
+            const appointmentEndTimeOnly = format(endDate, 'HH:mm:ss');
+            
+            // Convert times to minutes for proper comparison
+            const apptStart = timeToMinutes(appointmentTimeOnly);
+            const apptEnd = timeToMinutes(appointmentEndTimeOnly);
+            const exStart = timeToMinutes(exception.start_time);
+            const exEnd = timeToMinutes(exception.end_time);
+            
+            // Check for any overlap between the two time ranges
+            if (!(apptEnd <= exStart || apptStart >= exEnd)) {
               return {
                 type: 'time_off',
                 exception,
