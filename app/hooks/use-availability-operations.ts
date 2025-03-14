@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { timeToMinutes, minutesToTime } from '@/app/utils/time-utils';
+import { timeToMinutes } from '@/app/dashboard/availability/utils/time/calculations';
+import { minutesToTime } from '@/app/dashboard/availability/utils/time/additional';
 import { BaseAvailabilityFormValues } from '@/app/dashboard/availability/utils/schemas';
 import { TherapistAvailability } from './use-therapist-availability';
 import { UnifiedAvailabilityException } from '@/app/types/index';

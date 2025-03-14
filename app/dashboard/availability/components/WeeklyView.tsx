@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime, timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks, isDateInMultiDayEvent } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -15,7 +14,13 @@ import { useAppointments } from '@/app/hooks/use-appointments';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { TimeBlock } from '../utils/time-utils';
+
+// Import from the new modular structure
+import { formatTime } from '../utils/time/format';
+import { timeToMinutes } from '../utils/time/calculations';
+import { shouldShowRecurringForDate, isDateInMultiDayEvent } from '../utils/time/dates';
+import { createUnifiedTimeBlocks } from '../utils/time/conflicts';
+import type { TimeBlock } from '../utils/time/types';
 
 export interface WeeklyViewProps {
   availability: TherapistAvailability[];

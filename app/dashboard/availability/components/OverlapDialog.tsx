@@ -8,7 +8,9 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
-import { formatTime } from '../utils/time-utils';
+
+// Import from the new modular structure
+import { formatTime } from '../utils/time/format';
 
 interface OverlapDialogProps {
   isOpen: boolean;

@@ -3,7 +3,10 @@ import { useSupabase } from '@/app/utils/supabase';
 import { UnifiedAvailabilityException, UnifiedAvailability } from '@/app/types/index';
 import { useTherapistProfile } from '@/app/hooks/use-therapist-profile';
 import { useAuth } from '@/app/context/auth-context';
-import { DAYS_OF_WEEK } from '@/app/dashboard/availability/utils/time-utils';
+
+// Import from the new modular structure
+import { DAYS_OF_WEEK } from '@/app/dashboard/availability/utils/time/types';
+import { timeToMinutes } from '@/app/dashboard/availability/utils/time/calculations';
 
 export function useUnifiedAvailability() {
   const [unifiedAvailability, setUnifiedAvailability] = useState<UnifiedAvailabilityException[]>([]);
@@ -12,12 +15,6 @@ export function useUnifiedAvailability() {
   const { supabase, session } = useSupabase();
   const { user } = useAuth();
   const { therapistProfile, loading: profileLoading, error: profileError } = useTherapistProfile();
-
-  // Helper function to convert time string to minutes for comparison
-  const timeToMinutes = (timeStr: string): number => {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    return hours * 60 + minutes;
-  };
 
   // Fetch all unified exceptions
   async function fetchUnifiedAvailability() {

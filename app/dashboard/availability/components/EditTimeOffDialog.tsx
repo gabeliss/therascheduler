@@ -16,8 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TIME_OPTIONS, formatTime, validateTimeRange } from '../utils/time-utils';
 import { UnifiedAvailabilityException } from '@/app/types/index';
+
+// Import from the new modular structure
+import { TIME_OPTIONS, formatTime } from '../utils/time/format';
+import { validateTimeRange, timeToMinutes } from '../utils/time/calculations';
 import { Calendar } from '@/components/ui/calendar';
 import { Checkbox } from '@/components/ui/checkbox';
 import DateRangeSelector from './DateRangeSelector';
@@ -198,12 +201,6 @@ const EditTimeOffDialog = ({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  // Helper function to convert time string to minutes for comparison
-  const timeToMinutes = (timeStr: string): number => {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    return hours * 60 + minutes;
   };
 
   if (!exception) return null;

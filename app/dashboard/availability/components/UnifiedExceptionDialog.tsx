@@ -34,10 +34,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Calendar } from '@/components/ui/calendar';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
-import { TIME_OPTIONS, DAYS_OF_WEEK, BUSINESS_HOURS, validateTimeRange } from '../utils/time-utils';
 import { format } from 'date-fns';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { useAppointments } from '@/app/hooks/use-appointments';
+
+// Import from the new modular structure
+import { DAYS_OF_WEEK, BUSINESS_HOURS } from '../utils/time/types';
+import { TIME_OPTIONS } from '../utils/time/format';
+import { validateTimeRange } from '../utils/time/calculations';
 import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 
 interface UnifiedExceptionDialogProps {

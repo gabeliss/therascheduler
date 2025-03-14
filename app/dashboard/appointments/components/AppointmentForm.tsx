@@ -33,7 +33,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { formatDateForInput, createDefaultDate, ensureEndTimeAfterStartTime } from '@/app/utils/time-utils';
+import { formatDateForInput, createDefaultDate, ensureEndTimeAfterStartTime } from '@/app/dashboard/availability/utils/time/additional';
 import { APPOINTMENT_TYPES } from '../types';
 
 // Add a new field to the form schema for appointmentDate

@@ -31,9 +31,11 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
-import { TIME_OPTIONS } from '../utils/time-utils';
 import { format } from 'date-fns';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+
+// Import from the new modular structure
+import { TIME_OPTIONS } from '../utils/time/format';
 
 interface ExceptionDialogProps {
   isOpen: boolean;

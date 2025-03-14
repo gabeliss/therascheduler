@@ -15,8 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { TIME_OPTIONS, formatTime, validateTimeRange } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
+
+// Import from the new modular structure
+import { TIME_OPTIONS, formatTime } from '../utils/time/format';
+import { validateTimeRange } from '../utils/time/calculations';
 
 interface EditAvailabilityDialogProps {
   isOpen: boolean;

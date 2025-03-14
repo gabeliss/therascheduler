@@ -6,27 +6,14 @@ import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Edit, Clock, X, Check, Calendar as CalendarIcon, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
-import { timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks, isDateInMultiDayEvent } from './utils/time-utils';
 import { Appointment } from '@/app/types';
 import { useAppointments } from '@/app/hooks/use-appointments';
 
-// Interface for a time block that can be either availability or time off
-interface TimeBlock {
-  id: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  type: 'availability' | 'time-off' | 'appointment';
-  reason?: string;
-  original: TherapistAvailability | UnifiedAvailabilityException | Appointment;
-  original_time?: string;
-  is_all_day?: boolean;
-  start_date?: string; // For multi-day events
-  end_date?: string;   // For multi-day events
-  client_name?: string; // For appointments
-  status?: string; // For appointments
-  overrides_time_off?: boolean; // For appointments that override time off
-}
+// Import from the new modular structure
+import { timeToMinutes } from './utils/time/calculations';
+import { shouldShowRecurringForDate, isDateInMultiDayEvent } from './utils/time/dates';
+import { createUnifiedTimeBlocks } from './utils/time/conflicts';
+import type { TimeBlock } from './utils/time/types';
 
 export interface UnifiedCalendarViewProps {
   availability: TherapistAvailability[];

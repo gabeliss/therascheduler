@@ -3,7 +3,7 @@ import { Trash2, Edit, Repeat, Clock, Calendar, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { formatTime } from '@/app/utils/time-utils';
+import { formatTime } from '@/app/dashboard/availability/utils/time/format';
 
 export interface TimeBlockProps {
   id: string;

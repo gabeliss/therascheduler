@@ -32,7 +32,11 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BaseAvailabilityFormValues, refinedBaseSchema } from '../utils/schemas';
-import { DAYS_OF_WEEK, TIME_OPTIONS, BUSINESS_HOURS, validateTimeRange } from '../utils/time-utils';
+
+// Import from the new modular structure
+import { DAYS_OF_WEEK, BUSINESS_HOURS } from '../utils/time/types';
+import { TIME_OPTIONS } from '../utils/time/format';
+import { validateTimeRange } from '../utils/time/calculations';
 
 interface BaseAvailabilityFormProps {
   isOpen: boolean;

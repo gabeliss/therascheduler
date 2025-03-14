@@ -6,7 +6,9 @@ import { HierarchicalAvailability, AvailabilityException } from '@/app/types';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatTime as formatTimeUtil } from '../utils/time-utils';
+
+// Import from the new modular structure
+import { formatTime as formatTimeUtil } from '../utils/time/format';
 
 // Custom tooltip components
 interface TooltipProps {

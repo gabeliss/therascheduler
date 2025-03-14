@@ -14,7 +14,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Clock, Calendar as CalendarIcon, Loader2, AlertCircle } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime, DAYS_OF_WEEK, TIME_OPTIONS, validateTimeRange } from '../utils/time-utils';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Select,
@@ -24,6 +23,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+
+// Import from the new modular structure
+import { formatTime } from '../utils/time/format';
+import { DAYS_OF_WEEK } from '../utils/time/types';
+import { TIME_OPTIONS } from '../utils/time/format';
+import { validateTimeRange } from '../utils/time/calculations';
 import { ExceptionFormValues } from '../utils/schemas';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { Checkbox } from '@/components/ui/checkbox';

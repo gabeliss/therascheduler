@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { AvailabilityConflict, TimeOffConflict, AppointmentConflict } from '@/app/hooks/use-appointments';
 import { AlertCircle, Calendar, Clock, Info, AlertTriangle, CheckCircle2, Check, Users } from 'lucide-react';
 import { format } from 'date-fns';
-import { formatTime } from '@/app/utils/time-utils';
+import { formatTime } from '@/app/dashboard/availability/utils/time/format';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 

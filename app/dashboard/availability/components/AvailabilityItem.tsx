@@ -2,8 +2,10 @@ import React from 'react';
 import { Clock, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './ui/Accordion';
-import { formatTime } from '../utils/time-utils';
 import { HierarchicalItem } from '../utils/types';
+
+// Import from the new modular structure
+import { formatTime } from '../utils/time/format';
 
 interface AvailabilityItemProps {
   item: HierarchicalItem;

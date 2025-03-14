@@ -12,7 +12,8 @@ import AppointmentForm, { AppointmentFormValues } from './components/Appointment
 import AppointmentFilters from './components/AppointmentFilters';
 import AppointmentTable from './components/AppointmentTable';
 import AppointmentDetails from './components/AppointmentDetails';
-import { formatDateForInput, validateTimeRange } from '@/app/utils/time-utils';
+import { formatDateForInput } from '@/app/dashboard/availability/utils/time/additional';
+import { validateTimeRange } from '@/app/dashboard/availability/utils/time/calculations';
 import EnhancedConflictResolutionDialog from './components/EnhancedConflictResolutionDialog';
 import { supabase } from '@/app/utils/supabase';
 import { sendAppointmentStatusNotification } from '@/app/utils/email-service';

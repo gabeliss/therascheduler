@@ -8,7 +8,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { useTherapistAvailability, TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { BaseAvailabilityFormValues, ExceptionFormValues } from './utils/schemas';
-import { formatDate, DAYS_OF_WEEK } from './utils/time-utils';
 import { format } from 'date-fns';
 import BaseAvailabilityForm from './components/BaseAvailabilityForm';
 import OverlapDialog from './components/OverlapDialog';
@@ -23,6 +22,11 @@ import { UnifiedAvailabilityException } from '@/app/types/index';
 import { useDialogState } from '@/app/hooks/use-dialog-state';
 import { useAvailabilityOperations } from '@/app/hooks/use-availability-operations';
 import { useAppointments } from '@/app/hooks/use-appointments';
+
+// Import from the new modular structure
+import { formatDate } from './utils/time/format';
+import { DAYS_OF_WEEK } from './utils/time/types';
+import { timeToMinutes, checkTimeOverlap } from './utils/time/calculations';
 
 // Component for the Add Availability button
 function AddAvailabilityButton({ onClick }: { onClick: () => void }) {
@@ -527,27 +531,6 @@ export default function AvailabilityPage() {
         variant: "destructive",
       });
     }
-  };
-
-  // Function to check if two time ranges overlap
-  const checkTimeOverlap = (
-    startTime1: string,
-    endTime1: string,
-    startTime2: string,
-    endTime2: string
-  ): boolean => {
-    const start1 = timeToMinutes(startTime1);
-    const end1 = timeToMinutes(endTime1);
-    const start2 = timeToMinutes(startTime2);
-    const end2 = timeToMinutes(endTime2);
-    
-    return (start1 < end2 && end1 > start2);
-  };
-
-  // Function to convert time string to minutes
-  const timeToMinutes = (time: string): number => {
-    const [hours, minutes] = time.split(':').map(Number);
-    return hours * 60 + minutes;
   };
 
   return (

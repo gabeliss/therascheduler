@@ -4,7 +4,7 @@ import { Appointment } from '@/app/types';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { useTherapistProfile } from './use-therapist-profile';
 import { format, parseISO, isWithinInterval, isSameDay, areIntervalsOverlapping } from 'date-fns';
-import { timeToMinutes } from '@/app/utils/time-utils';
+import { timeToMinutes } from '@/app/dashboard/availability/utils/time/calculations';
 import { sendAppointmentStatusNotification } from '@/app/utils/email-service';
 
 // Define conflict types
