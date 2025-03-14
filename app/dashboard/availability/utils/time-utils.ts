@@ -379,6 +379,125 @@ export function createUnifiedTimeBlocks(
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:00`;
   };
 
+  // First, check if there are any all-day time off blocks for this date
+  // If so, they should override all availability blocks
+  const allDayTimeOffBlocks: TimeBlock[] = [];
+  const processedExceptionIds = new Set<string>();
+  
+  if (date) {
+    const currentDateStr = format(date, 'yyyy-MM-dd');
+    
+    // Find all all-day time off blocks for this date
+    const allDayExceptions = exceptionSlots.filter(ex => 
+      ex.is_all_day && 
+      ((ex.start_date && ex.end_date && 
+        currentDateStr >= ex.start_date && 
+        currentDateStr <= ex.end_date) ||
+       ((ex as any).specific_date === currentDateStr))
+    );
+    
+    // If there are any all-day time off blocks, they override everything else
+    if (allDayExceptions.length > 0) {
+      // Add them to our special array
+      allDayTimeOffBlocks.push(...allDayExceptions.map(ex => {
+        // Mark this exception as processed
+        processedExceptionIds.add(ex.id);
+        
+        return {
+          id: `${ex.id}-${currentDateStr}`, // Make ID unique for each day
+          start_time: ex.start_time || '00:00:00',
+          end_time: ex.end_time || '23:59:59',
+          is_recurring: false, // Treat as non-recurring for this day
+          type: 'time-off' as const,
+          reason: ex.reason,
+          original: ex,
+          is_all_day: true,
+          start_date: ex.start_date,
+          end_date: ex.end_date
+        };
+      }));
+      
+      // If there are any all-day time off blocks, only process appointments
+      // Skip processing availability blocks
+      if (allDayTimeOffBlocks.length > 0) {
+        // Process appointments that override time off
+        let appointmentBlocks: TimeBlock[] = [];
+        if (appointmentSlots.length > 0) {
+          // Only include appointments that explicitly override time off
+          appointmentBlocks = appointmentSlots
+            .filter(appt => appt.overrides_time_off === true)
+            .map(appointment => {
+              // Get the correct start and end times
+              let startTimeStr, endTimeStr;
+              
+              if ('display_start_time' in appointment && typeof appointment.display_start_time === 'string') {
+                // Use the display time properties if available
+                startTimeStr = appointment.display_start_time;
+                endTimeStr = 'display_end_time' in appointment && typeof appointment.display_end_time === 'string' 
+                  ? appointment.display_end_time 
+                  : format(new Date(appointment.end_time), 'HH:mm:ss');
+              } else if ('formatted_start_time' in appointment && typeof appointment.formatted_start_time === 'string') {
+                // Use the formatted time if available
+                const formattedStart = new Date(appointment.formatted_start_time);
+                const formattedEnd = new Date(
+                  'formatted_end_time' in appointment && typeof appointment.formatted_end_time === 'string' 
+                    ? appointment.formatted_end_time 
+                    : appointment.end_time
+                );
+                startTimeStr = format(formattedStart, 'HH:mm:ss');
+                endTimeStr = format(formattedEnd, 'HH:mm:ss');
+              } else {
+                // Fall back to regular time handling
+                const startDate = new Date(appointment.start_time);
+                const endDate = new Date(appointment.end_time);
+                startTimeStr = format(startDate, 'HH:mm:ss');
+                endTimeStr = format(endDate, 'HH:mm:ss');
+              }
+              
+              // Get client name safely with proper type checking
+              let clientName = undefined;
+              if ('client' in appointment && 
+                  appointment.client && 
+                  typeof appointment.client === 'object' && 
+                  'name' in appointment.client) {
+                clientName = appointment.client.name;
+              }
+              
+              return {
+                id: appointment.id,
+                start_time: startTimeStr,
+                end_time: endTimeStr,
+                is_recurring: false,
+                type: 'appointment' as const,
+                reason: appointment.notes,
+                original: appointment,
+                start_date: format(new Date(appointment.start_time), 'yyyy-MM-dd'),
+                end_date: format(new Date(appointment.end_time), 'yyyy-MM-dd'),
+                client_name: clientName,
+                status: appointment.status,
+                overrides_time_off: true
+              };
+            });
+        }
+        
+        // Return all-day time off blocks and appointments that override time off
+        // Sort appointments by start time
+        const sortedAppointments = appointmentBlocks.sort((a, b) => 
+          timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
+        );
+        
+        return [...allDayTimeOffBlocks, ...sortedAppointments];
+      }
+    }
+  }
+  
+  // First, handle multi-day all-day events separately
+  // These should always appear regardless of other conflicts
+  const multiDayAllDayEvents: TimeBlock[] = [];
+  
+  // If there are no all-day time off blocks, or we're not processing a specific date,
+  // continue with the normal processing
+  
   // Process appointments first - they take highest priority
   let appointmentBlocks: TimeBlock[] = [];
   if (appointmentSlots.length > 0) {
@@ -419,7 +538,6 @@ export function createUnifiedTimeBlocks(
           'name' in appointment.client) {
         clientName = appointment.client.name;
       }
-      
       
       return {
         id: appointment.id,
@@ -465,6 +583,11 @@ export function createUnifiedTimeBlocks(
   
   // Process each exception and handle overlaps
   for (const ex of sortedExceptions) {
+    // Skip exceptions we've already processed as all-day events
+    if (processedExceptionIds.has(ex.id)) {
+      continue;
+    }
+    
     const exStartMinutes = timeToMinutes(ex.start_time);
     const exEndMinutes = timeToMinutes(ex.end_time);
     
@@ -801,5 +924,32 @@ export function createUnifiedTimeBlocks(
     timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
   );
 
-  return sortedBlocks;
+  // Make sure to include our multi-day all-day events in the final result
+  let finalBlocks = [...sortedBlocks];
+  
+  if (allDayTimeOffBlocks.length > 0) {
+    // Add all-day time off blocks at the beginning
+    finalBlocks = [...allDayTimeOffBlocks, ...finalBlocks];
+  }
+
+  return finalBlocks;
+}
+
+/**
+ * Checks if a given date falls within a multi-day event's date range
+ * 
+ * @param date The date to check (Date object)
+ * @param startDate The event's start date (string in format 'YYYY-MM-DD')
+ * @param endDate The event's end date (string in format 'YYYY-MM-DD')
+ * @returns boolean indicating if the date is within the event's range
+ */
+export function isDateInMultiDayEvent(
+  date: Date,
+  startDate?: string,
+  endDate?: string
+): boolean {
+  if (!startDate || !endDate) return false;
+  
+  const dateString = format(date, 'yyyy-MM-dd');
+  return dateString >= startDate && dateString <= endDate;
 } 

@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Edit, Clock, X, Check, Calendar as CalendarIcon, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
-import { timeToMinutes, shouldShowRecurringForDate } from './utils/time-utils';
+import { timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks, isDateInMultiDayEvent } from './utils/time-utils';
 import { Appointment } from '@/app/types';
 import { useAppointments } from '@/app/hooks/use-appointments';
-import { createUnifiedTimeBlocks } from './utils/time-utils';
 
 // Interface for a time block that can be either availability or time off
 interface TimeBlock {
@@ -123,6 +122,7 @@ export default function UnifiedCalendarView({
 
   // Get all multi-day events that span the entire month
   const getMultiDayEvents = () => {
+    // Filter all-day exceptions
     return allExceptions
       .filter(ex => ex.is_all_day && ex.start_date && ex.end_date)
       .map(ex => ({
@@ -173,11 +173,19 @@ export default function UnifiedCalendarView({
     });
     
     // Get specific date exceptions for this date
-    const specificExceptions = allExceptions.filter(exception => 
-      !exception.is_recurring && 
-      exception.start_date && exception.end_date &&
-      dateString >= exception.start_date && dateString <= exception.end_date
-    );
+    // Use the utility function to check if this date falls within any multi-day event's range
+    const specificExceptions = allExceptions.filter(exception => {
+      if (exception.is_recurring) return false;
+      
+      // For all-day multi-day events, check if this date is within the range
+      if (exception.is_all_day && exception.start_date && exception.end_date) {
+        return isDateInMultiDayEvent(date, exception.start_date, exception.end_date);
+      }
+      
+      // For regular exceptions, check if it's for this specific date
+      // Use type assertion to handle the case where specific_date might not exist
+      return (exception as any).specific_date === dateString;
+    });
     
     // Get appointments for this date
     const dateAppointments = appointments.filter(appointment => {
@@ -337,22 +345,37 @@ export default function UnifiedCalendarView({
                     }
                   }
                   
+                  // Determine if this is the first day, last day, or middle day of a multi-day event
+                  let dayPosition = '';
+                  if (event.start_date && event.end_date) {
+                    const currentDateStr = format(date, 'yyyy-MM-dd');
+                    if (currentDateStr === event.start_date && currentDateStr === event.end_date) {
+                      dayPosition = 'single-day';
+                    } else if (currentDateStr === event.start_date) {
+                      dayPosition = 'first-day';
+                    } else if (currentDateStr === event.end_date) {
+                      dayPosition = 'last-day';
+                    } else if (currentDateStr > event.start_date && currentDateStr < event.end_date) {
+                      dayPosition = 'middle-day';
+                    }
+                  }
+                  
                   return (
                     <div
                       key={`all-day-${event.id}`}
-                      className="text-xs bg-blue-100 text-blue-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-blue-300 shadow-sm group hover:bg-blue-200 transition-colors"
+                      className="text-xs bg-red-100 text-red-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-red-300 shadow-sm group hover:bg-red-200 transition-colors"
                       title={event.reason || 'All day event'}
                     >
                       <div className="flex items-center gap-1 overflow-hidden">
-                        <CalendarIcon className="h-3 w-3 text-blue-600 flex-shrink-0" />
+                        <CalendarIcon className="h-3 w-3 text-red-600 flex-shrink-0" />
                         <div className="flex flex-col">
                           <span className="font-medium truncate">
                             {event.reason || 'All Day'}
                           </span>
                           {dateRangeText && (
-                            <span className="text-blue-600 text-[10px]">{dateRangeText}</span>
+                            <span className="text-red-600 text-[10px]">{dateRangeText}</span>
                           )}
-                          <span className="text-blue-600 text-[10px]">All Day</span>
+                          <span className="text-red-600 text-[10px]">All Day</span>
                         </div>
                       </div>
                       {onEditException && !isBefore(date, new Date()) && (
@@ -366,7 +389,7 @@ export default function UnifiedCalendarView({
                           }}
                           title="Edit event"
                         >
-                          <Edit className="h-3 w-3 text-blue-700" />
+                          <Edit className="h-3 w-3 text-red-700" />
                         </Button>
                       )}
                     </div>

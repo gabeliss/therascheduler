@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime, timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks } from '../utils/time-utils';
+import { formatTime, timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks, isDateInMultiDayEvent } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -85,10 +85,8 @@ export default function WeeklyView({
     const specificDateExceptions = exceptions.filter(ex => {
       if (ex.is_recurring) return false;
       
-      // Check if this date falls within the date range
-      return ex.start_date && ex.end_date && 
-             formattedDate >= ex.start_date && 
-             formattedDate <= ex.end_date;
+      // Use the utility function to check if this date falls within the date range
+      return isDateInMultiDayEvent(date, ex.start_date, ex.end_date);
     });
     
     // Get recurring exceptions
@@ -191,12 +189,18 @@ export default function WeeklyView({
         );
         
         // Check for specific date exceptions
-        const specificDateExceptions = exceptions.filter(
-          ex => !ex.is_recurring && 
-               ex.start_date && ex.end_date && 
-               formattedDate >= ex.start_date && 
-               formattedDate <= ex.end_date
-        );
+        const specificDateExceptions = exceptions.filter(ex => {
+          if (ex.is_recurring) return false;
+          
+          // For all-day multi-day events, check if this date is within the range
+          if (ex.is_all_day && ex.start_date && ex.end_date) {
+            return isDateInMultiDayEvent(currentDay, ex.start_date, ex.end_date);
+          }
+          
+          // For regular exceptions, check if it's for this specific date
+          // Use type assertion to handle the case where specific_date might not exist
+          return (ex as any).specific_date === formattedDate;
+        });
         
         // If there are specific date availability entries, use only those
         // Otherwise, use recurring availability
@@ -236,6 +240,20 @@ export default function WeeklyView({
           currentDay
         );
 
+        // Make sure all-day events are at the top
+        const allDayEvents = finalTimelineBlocks.filter(block => 
+          block.type === 'time-off' && block.is_all_day
+        );
+        const regularTimeBlocks = finalTimelineBlocks.filter(block => 
+          !(block.type === 'time-off' && block.is_all_day)
+        );
+
+        // Sort the blocks by type and time
+        const sortedTimeBlocks = [
+          ...allDayEvents,
+          ...regularTimeBlocks.sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time))
+        ];
+
         return (
           <div key={day} className="border rounded-lg p-4 shadow-sm">
             <div className="flex justify-between items-center mb-3">
@@ -261,11 +279,11 @@ export default function WeeklyView({
               </TooltipProvider>
             </div>
             
-            {finalTimelineBlocks.length > 0 ? (
+            {sortedTimeBlocks.length > 0 ? (
               <div className="space-y-1">
-                {finalTimelineBlocks.map((block, blockIndex) => {
+                {sortedTimeBlocks.map((block, blockIndex) => {
                   // Check if this block is a different type than the previous one
-                  const prevBlock = blockIndex > 0 ? finalTimelineBlocks[blockIndex - 1] : null;
+                  const prevBlock = blockIndex > 0 ? sortedTimeBlocks[blockIndex - 1] : null;
                   const showDivider = prevBlock && prevBlock.type !== block.type;
                   
                   return (
@@ -297,8 +315,15 @@ export default function WeeklyView({
                               ) : (
                                 <Users className="h-4 w-4 mr-1 inline" />
                               )}
-                              {block.is_all_day ? (
-                                "All Day"
+                              {block.type === 'time-off' && block.is_all_day ? (
+                                <span className="font-medium">
+                                  All Day
+                                  {block.start_date && block.end_date && block.start_date !== block.end_date && (
+                                    <span className="ml-1 text-xs text-red-600">
+                                      ({format(parseISO(block.start_date), 'MMM d')} - {format(parseISO(block.end_date), 'MMM d')})
+                                    </span>
+                                  )}
+                                </span>
                               ) : (
                                 <>
                                   {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} - 
