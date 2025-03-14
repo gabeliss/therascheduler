@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { format, addDays, startOfWeek, isAfter, isSameDay, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { formatTime, timeToMinutes } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
@@ -27,6 +27,7 @@ export interface WeeklyViewProps {
   onEditException: (exception: UnifiedAvailabilityException) => void;
   onEditAvailability: (availability: TherapistAvailability) => void;
   showAppointments?: boolean;
+  loading?: boolean;
 }
 
 // Interface for a time block that can be either availability or time off
@@ -54,12 +55,14 @@ export default function WeeklyView({
   formatDate,
   onEditException,
   onEditAvailability,
-  showAppointments = true
+  showAppointments = true,
+  loading = false
 }: WeeklyViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [showTimeOff, setShowTimeOff] = useState(true);
-  const [showAppointmentsState, setShowAppointmentsState] = useState(showAppointments);
   const { appointments: hookAppointments, loading: appointmentsLoading } = useAppointments();
+  
+  // Determine if we're in a loading state
+  const isLoading = loading || appointmentsLoading;
   
   // Get the start of the week (Sunday)
   const weekStart = startOfWeek(currentDate);
@@ -373,7 +376,7 @@ export default function WeeklyView({
   const weekRangeTitle = `Weekly Schedule: ${weekStartFormatted} - ${weekEndFormatted}`;
   
   // Use either provided appointments or appointments from the hook
-  const appointments = propAppointments || (showAppointmentsState ? hookAppointments : []);
+  const appointments = propAppointments || hookAppointments;
 
   // Get recurring availability for a specific day
   const getRecurringAvailabilityForDay = (dayIndex: number) => {
@@ -387,7 +390,7 @@ export default function WeeklyView({
   
   // Get appointments for a specific day of the week
   const getAppointmentsForDay = (dayIndex: number) => {
-    if (!showAppointmentsState || !appointments.length) return [];
+    if (!appointments.length) return [];
     
     // Get the date for this day in the current week
     const currentDayDate = weekDays[dayIndex];
@@ -418,7 +421,7 @@ export default function WeeklyView({
     availabilityBlocks: TimeBlock[],
     dayAppointments: Appointment[]
   ): TimeBlock[] => {
-    if (!showAppointmentsState || !dayAppointments.length) {
+    if (!dayAppointments.length) {
       return availabilityBlocks;
     }
 
@@ -565,28 +568,6 @@ export default function WeeklyView({
           <Button variant="outline" size="sm" onClick={goToNextWeek}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-        </div>
-      </div>
-      
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="show-time-off"
-              checked={showTimeOff}
-              onCheckedChange={setShowTimeOff}
-            />
-            <Label htmlFor="show-time-off">Show Time Off</Label>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="show-appointments"
-              checked={showAppointmentsState}
-              onCheckedChange={setShowAppointmentsState}
-            />
-            <Label htmlFor="show-appointments">Show Appointments</Label>
-          </div>
         </div>
       </div>
       
@@ -890,6 +871,11 @@ export default function WeeklyView({
                     </div>
                   );
                 })}
+              </div>
+            ) : isLoading ? (
+              <div className="flex justify-center items-center py-6">
+                <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                <span className="ml-2 text-sm text-gray-500">Loading schedule...</span>
               </div>
             ) : (
               <p className="text-gray-500 text-sm">No availability or time off set for this day.</p>

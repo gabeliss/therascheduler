@@ -1,11 +1,11 @@
--- Add start_date and end_date columns to unified_availability_exceptions table
+-- Add start_date and end_date columns to time_off table
 SELECT add_column_if_not_exists(
-        'unified_availability_exceptions',
+        'time_off',
         'start_date',
         'text'
     );
 SELECT add_column_if_not_exists(
-        'unified_availability_exceptions',
+        'time_off',
         'end_date',
         'text'
     );

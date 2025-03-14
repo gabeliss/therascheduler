@@ -74,8 +74,43 @@ export const formatTime = (time: string) => {
 
 // Convert time string to minutes for comparison
 export function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(':').map(Number);
-  return hours * 60 + minutes;
+  if (!time) {
+    console.error('Invalid time provided to timeToMinutes:', time);
+    return 0;
+  }
+  
+  try {
+    // Handle different time formats
+    let hours = 0;
+    let minutes = 0;
+    
+    if (time.includes(':')) {
+      const parts = time.split(':');
+      hours = parseInt(parts[0], 10) || 0;
+      minutes = parseInt(parts[1], 10) || 0;
+    } else if (time.includes('T')) {
+      // Handle ISO format like "2023-01-01T09:30:00"
+      const timePart = time.split('T')[1];
+      if (timePart) {
+        const parts = timePart.split(':');
+        hours = parseInt(parts[0], 10) || 0;
+        minutes = parseInt(parts[1], 10) || 0;
+      }
+    } else {
+      // Try to parse as a number directly
+      const totalMinutes = parseInt(time, 10);
+      if (!isNaN(totalMinutes)) {
+        return totalMinutes;
+      }
+      console.error('Unrecognized time format:', time);
+      return 0;
+    }
+    
+    return hours * 60 + minutes;
+  } catch (error) {
+    console.error('Error in timeToMinutes:', error, 'for input:', time);
+    return 0;
+  }
 }
 
 // Convert minutes to time string

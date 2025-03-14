@@ -588,6 +588,7 @@ export default function AvailabilityPage() {
               onEditException={handleEditTimeOff}
               onEditAvailability={handleEditAvailability}
               showAppointments={true}
+              loading={availabilityLoading || exceptionsLoading}
             />
           </TabsContent>
           
@@ -598,6 +599,7 @@ export default function AvailabilityPage() {
               appointments={appointments}
               onAddException={(date: Date) => exceptionDialog.openDialog(date)}
               showAppointments={true}
+              loading={availabilityLoading || exceptionsLoading}
             />
           </TabsContent>
         </Tabs>

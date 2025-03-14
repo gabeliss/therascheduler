@@ -1,5 +1,5 @@
--- Create unified_availability_exceptions table
-CREATE TABLE unified_availability_exceptions (
+-- Create time_off table
+CREATE TABLE time_off (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     therapist_id UUID REFERENCES therapist_profiles(id) ON DELETE CASCADE,
     day_of_week INTEGER CHECK (
@@ -27,15 +27,15 @@ CREATE TABLE unified_availability_exceptions (
     )
 );
 -- Add indexes for performance
-CREATE INDEX idx_unified_exceptions_therapist_id ON unified_availability_exceptions(therapist_id);
-CREATE INDEX idx_unified_exceptions_day_of_week ON unified_availability_exceptions(day_of_week);
-CREATE INDEX idx_unified_exceptions_specific_date ON unified_availability_exceptions(specific_date);
-CREATE INDEX idx_unified_exceptions_is_recurring ON unified_availability_exceptions(is_recurring);
+CREATE INDEX idx_unified_exceptions_therapist_id ON time_off(therapist_id);
+CREATE INDEX idx_unified_exceptions_day_of_week ON time_off(day_of_week);
+CREATE INDEX idx_unified_exceptions_specific_date ON time_off(specific_date);
+CREATE INDEX idx_unified_exceptions_is_recurring ON time_off(is_recurring);
 -- Add trigger to update updated_at timestamp
 CREATE TRIGGER update_unified_exceptions_updated_at BEFORE
-UPDATE ON unified_availability_exceptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+UPDATE ON time_off FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 -- Enable Row Level Security
-ALTER TABLE unified_availability_exceptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE time_off ENABLE ROW LEVEL SECURITY;
 -- Create a function to check if the user is the owner of the therapist profile
 CREATE OR REPLACE FUNCTION is_therapist_profile_owner(profile_id UUID) RETURNS BOOLEAN AS $$ BEGIN RETURN EXISTS (
         SELECT 1
@@ -45,14 +45,14 @@ CREATE OR REPLACE FUNCTION is_therapist_profile_owner(profile_id UUID) RETURNS B
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
--- Create policies for unified_availability_exceptions
-CREATE POLICY "Therapists can view their own exceptions" ON unified_availability_exceptions FOR
+-- Create policies for time_off
+CREATE POLICY "Therapists can view their own exceptions" ON time_off FOR
 SELECT USING (is_therapist_profile_owner(therapist_id));
-CREATE POLICY "Therapists can insert their own exceptions" ON unified_availability_exceptions FOR
+CREATE POLICY "Therapists can insert their own exceptions" ON time_off FOR
 INSERT WITH CHECK (is_therapist_profile_owner(therapist_id));
-CREATE POLICY "Therapists can update their own exceptions" ON unified_availability_exceptions FOR
+CREATE POLICY "Therapists can update their own exceptions" ON time_off FOR
 UPDATE USING (is_therapist_profile_owner(therapist_id));
-CREATE POLICY "Therapists can delete their own exceptions" ON unified_availability_exceptions FOR DELETE USING (is_therapist_profile_owner(therapist_id));
+CREATE POLICY "Therapists can delete their own exceptions" ON time_off FOR DELETE USING (is_therapist_profile_owner(therapist_id));
 -- Migration function to convert existing exceptions to the unified model
 CREATE OR REPLACE FUNCTION migrate_to_unified_exceptions() RETURNS VOID AS $$
 DECLARE base_rec RECORD;
@@ -64,8 +64,8 @@ FROM base_availability LOOP -- For each exception of this base availability
     FOR exception_rec IN
 SELECT *
 FROM availability_exceptions
-WHERE base_availability_id = base_rec.id LOOP -- Insert into unified_availability_exceptions
-INSERT INTO unified_availability_exceptions (
+WHERE base_availability_id = base_rec.id LOOP -- Insert into time_off
+INSERT INTO time_off (
         therapist_id,
         day_of_week,
         start_time,

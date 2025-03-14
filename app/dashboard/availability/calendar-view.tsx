@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isBefore, parseISO, isWithinInterval } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Edit, Clock, X, Check, Calendar as CalendarIcon, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Clock, X, Check, Calendar as CalendarIcon, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { timeToMinutes } from './utils/time-utils';
@@ -37,6 +37,7 @@ export interface UnifiedCalendarViewProps {
   onEditException?: (exception: UnifiedAvailabilityException) => void;
   onEditAvailability?: (availability: TherapistAvailability) => void;
   showAppointments?: boolean;
+  loading?: boolean;
 }
 
 export default function UnifiedCalendarView({ 
@@ -48,7 +49,8 @@ export default function UnifiedCalendarView({
   onAddException,
   onEditException,
   onEditAvailability,
-  showAppointments = true
+  showAppointments = true,
+  loading = false
 }: UnifiedCalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -59,6 +61,9 @@ export default function UnifiedCalendarView({
   
   // Use either provided appointments or appointments from the hook
   const appointments = propAppointments || (showAppointments ? hookAppointments : []);
+
+  // Determine if we're in a loading state
+  const isLoading = loading || appointmentsLoading;
 
   // Navigation functions
   const goToPreviousMonth = () => setCurrentDate(subMonths(currentDate, 1));
@@ -608,177 +613,185 @@ export default function UnifiedCalendarView({
           </div>
         ))}
 
-        {/* Calendar Days */}
-        {calendarDays.map(({ date, isCurrentMonth }, index) => {
-          const isToday = isSameDay(date, new Date());
-          const isSelected = selectedDate && isSameDay(date, selectedDate);
-          const timeBlocks = getAvailabilityForDate(date);
-          
-          // Separate all-day events
-          const allDayEvents = timeBlocks.filter(block => 
-            block.type === 'time-off' && block.is_all_day
-          );
-          
-          // Regular time blocks (not all-day)
-          const regularTimeBlocks = timeBlocks.filter(block => 
-            !(block.type === 'time-off' && block.is_all_day)
-          );
+        {isLoading ? (
+          // Loading state - show a loading spinner in the center of the grid
+          <div className="col-span-7 bg-white p-12 flex flex-col items-center justify-center">
+            <Loader2 className="h-8 w-8 text-primary animate-spin mb-2" />
+            <p className="text-sm text-gray-500">Loading schedule...</p>
+          </div>
+        ) : (
+          // Calendar Days
+          calendarDays.map(({ date, isCurrentMonth }, index) => {
+            const isToday = isSameDay(date, new Date());
+            const isSelected = selectedDate && isSameDay(date, selectedDate);
+            const timeBlocks = getAvailabilityForDate(date);
+            
+            // Separate all-day events
+            const allDayEvents = timeBlocks.filter(block => 
+              block.type === 'time-off' && block.is_all_day
+            );
+            
+            // Regular time blocks (not all-day)
+            const regularTimeBlocks = timeBlocks.filter(block => 
+              !(block.type === 'time-off' && block.is_all_day)
+            );
 
-          return (
-            <div
-              key={date.toISOString()}
-              className={`
-                bg-white p-2 min-h-[100px] cursor-pointer border-t border-gray-300
-                ${isToday ? 'bg-blue-50' : ''}
-                ${isSelected ? 'ring-2 ring-blue-500' : ''}
-                ${!isCurrentMonth ? 'opacity-40' : ''}
-              `}
-              onClick={() => setSelectedDate(date)}
-            >
-              <div className="font-medium mb-1">{format(date, 'd')}</div>
-              
-              {/* All-day events at the top */}
-              {allDayEvents.map(event => {
-                // Format date range for multi-day events
-                let dateRangeText = '';
-                if (event.start_date && event.end_date) {
-                  const startDate = parseISO(event.start_date);
-                  const endDate = parseISO(event.end_date);
-                  if (!isSameDay(startDate, endDate)) {
-                    dateRangeText = `${format(startDate, 'MMM d')} - ${format(endDate, 'MMM d')}`;
+            return (
+              <div
+                key={date.toISOString()}
+                className={`
+                  bg-white p-2 min-h-[100px] cursor-pointer border-t border-gray-300
+                  ${isToday ? 'bg-blue-50' : ''}
+                  ${isSelected ? 'ring-2 ring-blue-500' : ''}
+                  ${!isCurrentMonth ? 'opacity-40' : ''}
+                `}
+                onClick={() => setSelectedDate(date)}
+              >
+                <div className="font-medium mb-1">{format(date, 'd')}</div>
+                
+                {/* All-day events at the top */}
+                {allDayEvents.map(event => {
+                  // Format date range for multi-day events
+                  let dateRangeText = '';
+                  if (event.start_date && event.end_date) {
+                    const startDate = parseISO(event.start_date);
+                    const endDate = parseISO(event.end_date);
+                    if (!isSameDay(startDate, endDate)) {
+                      dateRangeText = `${format(startDate, 'MMM d')} - ${format(endDate, 'MMM d')}`;
+                    }
                   }
-                }
-                
-                return (
-                  <div
-                    key={`all-day-${event.id}`}
-                    className="text-xs bg-blue-100 text-blue-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-blue-300 shadow-sm group hover:bg-blue-200 transition-colors"
-                    title={event.reason || 'All day event'}
-                  >
-                    <div className="flex items-center gap-1 overflow-hidden">
-                      <CalendarIcon className="h-3 w-3 text-blue-600 flex-shrink-0" />
-                      <div className="flex flex-col">
-                        <span className="font-medium truncate">
-                          {event.reason || 'All Day'}
-                        </span>
-                        {dateRangeText && (
-                          <span className="text-blue-600 text-[10px]">{dateRangeText}</span>
-                        )}
-                        <span className="text-blue-600 text-[10px]">All Day</span>
-                      </div>
-                    </div>
-                    {onEditException && !isBefore(date, new Date()) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditException(event.original as UnifiedAvailabilityException);
-                        }}
-                        title="Edit event"
-                      >
-                        <Edit className="h-3 w-3 text-blue-700" />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-              
-              {/* Regular time blocks */}
-              {regularTimeBlocks.map(block => {
-                const isPastDate = isBefore(date, new Date());
-                
-                if (block.type === 'availability') {
+                  
                   return (
                     <div
-                      key={block.id}
-                      className="text-xs bg-green-100 text-green-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-green-300 shadow-sm group hover:bg-green-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-1">
-                        <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
-                        <span className="font-medium">
-                          {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
-                          {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
-                        </span>
-                      </div>
-                      {onEditAvailability && !isPastDate && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditAvailability(block.original as TherapistAvailability);
-                          }}
-                          title="Edit availability"
-                        >
-                          <Edit className="h-3 w-3 text-green-700" />
-                        </Button>
-                      )}
-                    </div>
-                  );
-                } else if (block.type === 'appointment') {
-                  // Appointment block
-                  return (
-                    <div
-                      key={block.id}
+                      key={`all-day-${event.id}`}
                       className="text-xs bg-blue-100 text-blue-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-blue-300 shadow-sm group hover:bg-blue-200 transition-colors"
-                      title={block.client_name ? `Appointment with ${block.client_name}` : 'Appointment'}
+                      title={event.reason || 'All day event'}
                     >
-                      <div className="flex items-center gap-1">
-                        <Users className="h-3 w-3 text-blue-600 flex-shrink-0" />
-                        <span className="font-medium">
-                          {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
-                          {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
-                          {block.client_name && (
-                            <span className="ml-1 text-blue-700">
-                              (with {block.client_name})
-                            </span>
+                      <div className="flex items-center gap-1 overflow-hidden">
+                        <CalendarIcon className="h-3 w-3 text-blue-600 flex-shrink-0" />
+                        <div className="flex flex-col">
+                          <span className="font-medium truncate">
+                            {event.reason || 'All Day'}
+                          </span>
+                          {dateRangeText && (
+                            <span className="text-blue-600 text-[10px]">{dateRangeText}</span>
                           )}
-                        </span>
+                          <span className="text-blue-600 text-[10px]">All Day</span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                } else {
-                  // Time-off block
-                  return (
-                    <div
-                      key={block.id}
-                      className="text-xs bg-red-100 text-red-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-red-300 shadow-sm group hover:bg-red-200 transition-colors"
-                      title={block.reason || 'Time off'}
-                    >
-                      <div className="flex items-center gap-1">
-                        <X className="h-3 w-3 text-red-600 flex-shrink-0" />
-                        <span className="font-medium">
-                          {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
-                          {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
-                          {block.reason && (
-                            <span className="ml-1 text-red-700">({block.reason})</span>
-                          )}
-                        </span>
-                      </div>
-                      {onEditException && !isPastDate && (
+                      {onEditException && !isBefore(date, new Date()) && (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onEditException(block.original as UnifiedAvailabilityException);
+                            onEditException(event.original as UnifiedAvailabilityException);
                           }}
-                          title="Edit time off"
+                          title="Edit event"
                         >
-                          <Edit className="h-3 w-3 text-red-700" />
+                          <Edit className="h-3 w-3 text-blue-700" />
                         </Button>
                       )}
                     </div>
                   );
-                }
-              })}
-            </div>
-          );
-        })}
+                })}
+                
+                {/* Regular time blocks */}
+                {regularTimeBlocks.map(block => {
+                  const isPastDate = isBefore(date, new Date());
+                  
+                  if (block.type === 'availability') {
+                    return (
+                      <div
+                        key={block.id}
+                        className="text-xs bg-green-100 text-green-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-green-300 shadow-sm group hover:bg-green-200 transition-colors"
+                      >
+                        <div className="flex items-center gap-1">
+                          <Check className="h-3 w-3 text-green-600 flex-shrink-0" />
+                          <span className="font-medium">
+                            {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
+                            {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                          </span>
+                        </div>
+                        {onEditAvailability && !isPastDate && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditAvailability(block.original as TherapistAvailability);
+                            }}
+                            title="Edit availability"
+                          >
+                            <Edit className="h-3 w-3 text-green-700" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  } else if (block.type === 'appointment') {
+                    // Appointment block
+                    return (
+                      <div
+                        key={block.id}
+                        className="text-xs bg-blue-100 text-blue-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-blue-300 shadow-sm group hover:bg-blue-200 transition-colors"
+                        title={block.client_name ? `Appointment with ${block.client_name}` : 'Appointment'}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Users className="h-3 w-3 text-blue-600 flex-shrink-0" />
+                          <span className="font-medium">
+                            {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
+                            {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                            {block.client_name && (
+                              <span className="ml-1 text-blue-700">
+                                (with {block.client_name})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    // Time-off block
+                    return (
+                      <div
+                        key={block.id}
+                        className="text-xs bg-red-100 text-red-800 p-1.5 rounded-md mb-1.5 flex justify-between items-center border border-red-300 shadow-sm group hover:bg-red-200 transition-colors"
+                        title={block.reason || 'Time off'}
+                      >
+                        <div className="flex items-center gap-1">
+                          <X className="h-3 w-3 text-red-600 flex-shrink-0" />
+                          <span className="font-medium">
+                            {format(new Date(`2000-01-01T${block.start_time}`), 'h:mm a')} -
+                            {format(new Date(`2000-01-01T${block.end_time}`), 'h:mm a')}
+                            {block.reason && (
+                              <span className="ml-1 text-red-700">({block.reason})</span>
+                            )}
+                          </span>
+                        </div>
+                        {onEditException && !isPastDate && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditException(block.original as UnifiedAvailabilityException);
+                            }}
+                            title="Edit time off"
+                          >
+                            <Edit className="h-3 w-3 text-red-700" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  }
+                })}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

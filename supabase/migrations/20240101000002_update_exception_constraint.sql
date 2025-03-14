@@ -1,18 +1,18 @@
 -- First, drop the existing constraint
-ALTER TABLE unified_availability_exceptions DROP CONSTRAINT IF EXISTS unified_exceptions_day_or_date;
+ALTER TABLE time_off DROP CONSTRAINT IF EXISTS unified_exceptions_day_or_date;
 -- Add start_date and end_date columns if they don't exist yet
 SELECT add_column_if_not_exists(
-        'unified_availability_exceptions',
+        'time_off',
         'start_date',
         'text'
     );
 SELECT add_column_if_not_exists(
-        'unified_availability_exceptions',
+        'time_off',
         'end_date',
         'text'
     );
 -- Migrate existing data: copy specific_date to both start_date and end_date where needed
-UPDATE unified_availability_exceptions
+UPDATE time_off
 SET start_date = specific_date,
     end_date = specific_date
 WHERE is_recurring = false
@@ -22,7 +22,7 @@ WHERE is_recurring = false
         OR end_date IS NULL
     );
 -- Add a new constraint that uses only start_date and end_date for non-recurring exceptions
-ALTER TABLE unified_availability_exceptions
+ALTER TABLE time_off
 ADD CONSTRAINT unified_exceptions_day_or_date CHECK (
         (
             is_recurring = true
@@ -35,4 +35,4 @@ ADD CONSTRAINT unified_exceptions_day_or_date CHECK (
         )
     );
 -- Mark specific_date as deprecated (we'll keep it for now but will remove it later)
-COMMENT ON COLUMN unified_availability_exceptions.specific_date IS 'DEPRECATED: Use start_date and end_date instead';
+COMMENT ON COLUMN time_off.specific_date IS 'DEPRECATED: Use start_date and end_date instead';

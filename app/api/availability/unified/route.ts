@@ -27,7 +27,7 @@ export async function GET() {
     
     // Get all unified exceptions for this therapist
     const { data: exceptions, error: exceptionsError } = await supabase
-      .from('unified_availability_exceptions')
+      .from('time_off')
       .select('*')
       .eq('therapist_id', therapistProfile.id)
       .order('is_recurring', { ascending: false }) // Recurring first
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       
       // Check for overlapping exceptions
       const { data: existingExceptions, error: checkError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .select('*')
         .eq('therapist_id', therapistProfile.id)
         .eq('is_recurring', isRecurring);
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
       
       // Insert new exception
       const { data: newException, error: insertError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .insert({
           therapist_id: therapistProfile.id,
           day_of_week: isRecurring ? dayOfWeek : null,
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
       
       // Validate the exception belongs to this therapist
       const { data: existingException, error: checkError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .select('*')
         .eq('id', id)
         .eq('therapist_id', therapistProfile.id)
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       
       // Update the exception
       const { data: updatedException, error: updateError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .update(updates)
         .eq('id', id)
         .select()
@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
       
       // Validate the exception belongs to this therapist
       const { data: existingException, error: checkError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .select('*')
         .eq('id', id)
         .eq('therapist_id', therapistProfile.id)
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
       
       // Delete the exception
       const { error: deleteError } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .delete()
         .eq('id', id);
         

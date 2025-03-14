@@ -3,7 +3,7 @@
 import { useAuth } from '@/app/context/auth-context';
 import { useAppointments, ConflictCheckResult } from '@/app/hooks/use-appointments';
 import { useState, useEffect } from 'react';
-import { isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
+import { isAfter, isBefore, startOfDay, endOfDay, format } from 'date-fns';
 import { Loader2, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
@@ -12,8 +12,12 @@ import AppointmentForm, { AppointmentFormValues } from './components/Appointment
 import AppointmentFilters from './components/AppointmentFilters';
 import AppointmentTable from './components/AppointmentTable';
 import AppointmentDetails from './components/AppointmentDetails';
-import ConflictResolutionDialog from './components/ConflictResolutionDialog';
 import { formatDateForInput, validateTimeRange } from '@/app/utils/time-utils';
+import EnhancedConflictResolutionDialog from './components/EnhancedConflictResolutionDialog';
+import { supabase } from '@/app/utils/supabase';
+import { sendAppointmentStatusNotification } from '@/app/utils/email-service';
+import { Appointment } from '@/app/types';
+import { useTherapistProfile } from '@/app/hooks/use-therapist-profile';
 
 export default function AppointmentsPage() {
   // We're keeping the useAuth hook for future use but not using it actively
@@ -25,8 +29,9 @@ export default function AppointmentsPage() {
     updateAppointmentStatus, 
     createAppointment, 
     checkConflicts,
-    refreshAppointments 
+    refreshAppointments
   } = useAppointments();
+  const { therapistProfile } = useTherapistProfile();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithClient | null>(null);
@@ -139,46 +144,50 @@ export default function AppointmentsPage() {
   };
 
   const onSubmit = async (data: AppointmentFormValues) => {
+    setIsSubmitting(true);
+    
     try {
-      setIsSubmitting(true);
+      // Validate that we have valid date objects
+      const startDateTime = new Date(data.startTime);
+      const endDateTime = new Date(data.endTime);
       
-      // Ensure both start and end times use the selected date
-      if (data.appointmentDate) {
-        const startDate = new Date(data.startTime);
-        const endDate = new Date(data.endTime);
-        
-        // Set dates to match the selected appointment date
-        startDate.setFullYear(data.appointmentDate.getFullYear());
-        startDate.setMonth(data.appointmentDate.getMonth());
-        startDate.setDate(data.appointmentDate.getDate());
-        
-        endDate.setFullYear(data.appointmentDate.getFullYear());
-        endDate.setMonth(data.appointmentDate.getMonth());
-        endDate.setDate(data.appointmentDate.getDate());
-        
-        // Update the form data
-        data.startTime = formatDateForInput(startDate);
-        data.endTime = formatDateForInput(endDate);
-      }
-      
-      // Validate that end time is after start time
-      if (!validateTimeRange(data.startTime, data.endTime)) {
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        console.error('Invalid date values:', { startTime: data.startTime, endTime: data.endTime });
         toast({
-          title: 'Invalid time range',
-          description: 'End time must be after start time',
+          title: 'Invalid date',
+          description: 'Please select valid date and time values.',
           variant: 'destructive',
         });
         setIsSubmitting(false);
         return;
       }
       
-      // Check for conflicts
-      const conflictResult = await checkConflicts(data.startTime, data.endTime);
+      // Format the appointment date for conflict checking
+      const appointmentDate = format(startDateTime, 'yyyy-MM-dd');
+      const startTimeISO = startDateTime.toISOString();
+      const endTimeISO = endDateTime.toISOString();
+
+      console.log('Checking conflicts with:', {
+        appointmentDate,
+        startTimeISO,
+        endTimeISO
+      });
+
+      // Call checkConflicts with all required parameters
+      const conflictResult = await checkConflicts(
+        appointmentDate,
+        startTimeISO, // Use full ISO string instead of just time
+        endTimeISO,   // Use full ISO string instead of just time
+        '', // The therapist ID will be determined inside the checkConflicts function
+        [], // We'll fetch exceptions in the function
+        appointments
+      );
       
       // Store the form data in case we need it for conflict resolution
       setPendingAppointmentData(data);
       
       if (conflictResult.hasConflict) {
+        console.log('Conflicts detected:', conflictResult);
         // Show conflict resolution dialog
         setConflicts(conflictResult);
         setShowConflictDialog(true);
@@ -186,16 +195,62 @@ export default function AppointmentsPage() {
         return;
       }
       
+      // First, create or get the client profile
+      const { data: existingClient, error: clientError } = await supabase
+        .from('client_profiles')
+        .select('id')
+        .eq('email', data.clientEmail)
+        .single();
+
+      if (clientError && clientError.code !== 'PGRST116') {
+        throw clientError;
+      }
+
+      let clientId: string;
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        // Create a new client profile
+        const { data: newClient, error: createError } = await supabase
+          .from('client_profiles')
+          .insert([
+            {
+              name: data.clientName,
+              email: data.clientEmail,
+              phone: data.clientPhone,
+            },
+          ])
+          .select('id')
+          .single();
+
+        if (createError) throw createError;
+        clientId = newClient.id;
+      }
+      
       // No conflicts, create the appointment
-      await createAppointment({
-        clientName: data.clientName,
-        clientEmail: data.clientEmail,
-        clientPhone: data.clientPhone,
-        startTime: data.startTime,
-        endTime: data.endTime,
-        type: data.type,
-        notes: data.notes
-      });
+      const appointmentData: any = {
+        therapist_id: therapistProfile?.id,
+        client_id: clientId,
+        start_time: startTimeISO,
+        end_time: endTimeISO,
+        status: 'pending',
+        notes: data.notes,
+        type: data.type
+      };
+      
+      const result = await createAppointment(appointmentData);
+      
+      if (!result.success) {
+        if (result.conflicts) {
+          // Handle newly detected conflicts
+          setConflicts(result.conflicts);
+          setShowConflictDialog(true);
+          setIsSubmitting(false);
+          return;
+        } else {
+          throw new Error('Failed to create appointment');
+        }
+      }
       
       toast({
         title: 'Appointment created',
@@ -222,14 +277,76 @@ export default function AppointmentsPage() {
     if (!pendingAppointmentData) return;
     
     try {
-      // Create the appointment with override flag
-      const { appointmentDate, ...appointmentData } = pendingAppointmentData;
+      // Validate that we have valid date objects
+      const startDateTime = new Date(pendingAppointmentData.startTime);
+      const endDateTime = new Date(pendingAppointmentData.endTime);
       
-      await createAppointment({
-        ...appointmentData,
-        overrideTimeOff: true,
-        overrideReason
-      });
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        console.error('Invalid date values:', { 
+          startTime: pendingAppointmentData.startTime, 
+          endTime: pendingAppointmentData.endTime 
+        });
+        toast({
+          title: 'Invalid date',
+          description: 'Please select valid date and time values.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      const startTimeISO = startDateTime.toISOString();
+      const endTimeISO = endDateTime.toISOString();
+      
+      // First, create or get the client profile
+      const { data: existingClient, error: clientError } = await supabase
+        .from('client_profiles')
+        .select('id')
+        .eq('email', pendingAppointmentData.clientEmail)
+        .single();
+
+      if (clientError && clientError.code !== 'PGRST116') {
+        throw clientError;
+      }
+
+      let clientId: string;
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        // Create a new client profile
+        const { data: newClient, error: createError } = await supabase
+          .from('client_profiles')
+          .insert([
+            {
+              name: pendingAppointmentData.clientName,
+              email: pendingAppointmentData.clientEmail,
+              phone: pendingAppointmentData.clientPhone,
+            },
+          ])
+          .select('id')
+          .single();
+
+        if (createError) throw createError;
+        clientId = newClient.id;
+      }
+      
+      // Create the appointment with override flag
+      const appointmentData: any = {
+        therapist_id: therapistProfile?.id,
+        client_id: clientId,
+        start_time: startTimeISO,
+        end_time: endTimeISO,
+        status: 'pending',
+        notes: pendingAppointmentData.notes,
+        type: pendingAppointmentData.type,
+        overrides_time_off: true,
+        override_reason: overrideReason
+      };
+      
+      const result = await createAppointment(appointmentData);
+      
+      if (!result.success) {
+        throw new Error('Failed to create appointment with override');
+      }
       
       // Close dialogs and reset
       setShowConflictDialog(false);
@@ -240,6 +357,8 @@ export default function AppointmentsPage() {
         title: 'Appointment created',
         description: 'Appointment has been created, overriding scheduling conflicts.',
       });
+      
+      refreshAppointments();
     } catch (err) {
       console.error('Failed to create appointment with override:', err);
       toast({
@@ -343,11 +462,12 @@ export default function AppointmentsPage() {
       />
 
       {/* Conflict Resolution Dialog */}
-      <ConflictResolutionDialog
+      <EnhancedConflictResolutionDialog
         isOpen={showConflictDialog}
         onOpenChange={setShowConflictDialog}
         availabilityConflict={conflicts?.availabilityConflict || null}
         timeOffConflict={conflicts?.timeOffConflict || null}
+        appointmentConflict={conflicts?.appointmentConflict || null}
         onCancel={() => {
           setShowConflictDialog(false);
           setPendingAppointmentData(null);

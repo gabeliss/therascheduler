@@ -84,7 +84,7 @@ export function useUnifiedAvailability() {
 
     // Fetch unified exceptions
     const { data: exceptionsData, error: exceptionsError } = await supabase
-      .from('unified_availability_exceptions')
+      .from('time_off')
       .select('*')
       .eq('therapist_id', profile.id);
 
@@ -210,7 +210,7 @@ export function useUnifiedAvailability() {
 
       // Insert the exception
       const { data, error } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .insert([exceptionData])
         .select();
 
@@ -346,7 +346,7 @@ export function useUnifiedAvailability() {
       console.log("Updating exception:", id, updates);
       
       const { error } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .update(updates)
         .eq('id', id);
 
@@ -371,7 +371,7 @@ export function useUnifiedAvailability() {
       console.log("Deleting exception:", id);
       
       const { error } = await supabase
-        .from('unified_availability_exceptions')
+        .from('time_off')
         .delete()
         .eq('id', id);
 
