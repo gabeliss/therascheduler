@@ -35,7 +35,6 @@ export async function POST(request: Request) {
     
     if (body.type === 'signup' && body.event) {
       // This is a webhook payload
-      console.log('Processing webhook payload:', body);
       user_id = body.event.user_id;
       email = body.event.email;
       name = body.event.user_metadata?.name || email.split('@')[0];
@@ -50,7 +49,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields: user_id, email' }, { status: 400 });
     }
     
-    console.log("Creating therapist profile for user:", user_id, email);
     
     // Check if a profile already exists for this user
     const { data: existingProfiles, error: checkError } = await supabaseAdmin
@@ -80,15 +78,13 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'Error updating profile: ' + updateError.message }, { status: 500 });
         }
         
-        console.log("Updated profile:", updatedProfile);
         return NextResponse.json({ 
           message: 'Profile updated with correct user_id', 
           profile: updatedProfile && updatedProfile.length > 0 ? updatedProfile[0] : null,
           action: 'updated'
         });
       }
-      
-      console.log("Profile already exists:", existingProfile);
+
       return NextResponse.json({ 
         message: 'Profile already exists', 
         profile: existingProfile,
@@ -113,7 +109,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Error creating profile: ' + createError.message }, { status: 500 });
     }
     
-    console.log("Created new profile:", newProfile);
     return NextResponse.json({ 
       message: 'Profile created', 
       profile: newProfile && newProfile.length > 0 ? newProfile[0] : null,

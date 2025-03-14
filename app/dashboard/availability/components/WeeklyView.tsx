@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Trash2, Edit, Repeat, Clock, Calendar, Info, Users, Loader2 } from 'lucide-react';
 import { UnifiedAvailabilityException } from '@/app/types/index';
-import { formatTime, timeToMinutes } from '../utils/time-utils';
+import { formatTime, timeToMinutes, shouldShowRecurringForDate, createUnifiedTimeBlocks } from '../utils/time-utils';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import { useAppointments } from '@/app/hooks/use-appointments';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { TimeBlock } from '../utils/time-utils';
 
 export interface WeeklyViewProps {
   availability: TherapistAvailability[];
@@ -28,21 +29,6 @@ export interface WeeklyViewProps {
   onEditAvailability: (availability: TherapistAvailability) => void;
   showAppointments?: boolean;
   loading?: boolean;
-}
-
-// Interface for a time block that can be either availability or time off
-interface TimeBlock {
-  id: string;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-  type: 'availability' | 'time-off' | 'appointment';
-  reason?: string;
-  original: TherapistAvailability | UnifiedAvailabilityException | Appointment;
-  original_time?: string;
-  is_all_day?: boolean;
-  client_name?: string;
-  status?: string;
 }
 
 export default function WeeklyView({
@@ -106,20 +92,12 @@ export default function WeeklyView({
     });
     
     // Get recurring exceptions
-    // Only show recurring exceptions for dates after they were created
+    // Only show recurring exceptions for dates on or after they were created
     const recurringExceptions = exceptions.filter(ex => {
       if (!ex.is_recurring || ex.day_of_week !== dayOfWeek) return false;
       
-      // If this is a past date, check if the exception was created before this date
-      if (isPastDate) {
-        const createdAt = new Date(ex.created_at);
-        const dateToCheck = new Date(date);
-        // Only show recurring exceptions if they were created before this date
-        return createdAt < dateToCheck;
-      }
-      
-      // For current and future dates, show all recurring exceptions
-      return true;
+      // Use the utility function to determine if we should show this recurring exception
+      return shouldShowRecurringForDate(date, ex.created_at);
     });
     
     // Combine both types of exceptions and sort by start time
@@ -129,245 +107,6 @@ export default function WeeklyView({
     });
   };
 
-  // Function to create a unified timeline of availability and time off blocks
-  const createUnifiedTimeline = (
-    availabilitySlots: TherapistAvailability[], 
-    exceptionSlots: UnifiedAvailabilityException[]
-  ): TimeBlock[] => {
-    // Convert availability slots to TimeBlock format
-    const availabilityBlocks: TimeBlock[] = availabilitySlots.map(slot => ({
-      id: slot.id,
-      start_time: slot.start_time,
-      end_time: slot.end_time,
-      is_recurring: slot.is_recurring,
-      type: 'availability',
-      original: slot
-    }));
-
-    // Handle overlapping time-off blocks (one-time should override recurring)
-    const processedExceptionBlocks: TimeBlock[] = [];
-    
-    // First, sort exceptions by priority (non-recurring first, then by start time)
-    const sortedExceptions = [...exceptionSlots].sort((a, b) => {
-      // Non-recurring exceptions take precedence
-      if (a.is_recurring !== b.is_recurring) {
-        return a.is_recurring ? 1 : -1;
-      }
-      // If both are the same type, sort by start time
-      return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
-    });
-    
-    // Process each exception and handle overlaps
-    sortedExceptions.forEach(ex => {
-      const exStartMinutes = timeToMinutes(ex.start_time);
-      const exEndMinutes = timeToMinutes(ex.end_time);
-      
-      // Check for overlaps with already processed exceptions
-      const overlappingBlocks = processedExceptionBlocks.filter(block => {
-        const blockStartMinutes = timeToMinutes(block.start_time);
-        const blockEndMinutes = timeToMinutes(block.end_time);
-        
-        return (
-          (exStartMinutes < blockEndMinutes && exEndMinutes > blockStartMinutes) ||
-          (blockStartMinutes < exEndMinutes && blockEndMinutes > exStartMinutes)
-        );
-      });
-      
-      if (overlappingBlocks.length === 0) {
-        // No overlaps, add the exception as is
-        processedExceptionBlocks.push({
-          id: ex.id,
-          start_time: ex.start_time,
-          end_time: ex.end_time,
-          is_recurring: ex.is_recurring,
-          type: 'time-off',
-          reason: ex.reason,
-          original: ex,
-          is_all_day: ex.is_all_day
-        });
-        return;
-      }
-      
-      // Handle overlaps - for recurring exceptions that overlap with one-time exceptions
-      if (ex.is_recurring) {
-        // If this is a recurring exception and it overlaps with a one-time exception,
-        // we may need to split it or skip it entirely
-        
-        // Check if it's completely covered by any one-time exception
-        const completelyOverlapped = overlappingBlocks.some(block => {
-          const blockStartMinutes = timeToMinutes(block.start_time);
-          const blockEndMinutes = timeToMinutes(block.end_time);
-          return blockStartMinutes <= exStartMinutes && blockEndMinutes >= exEndMinutes;
-        });
-        
-        if (completelyOverlapped) {
-          // Skip this recurring exception as it's completely covered
-          return;
-        }
-        
-        // Split the recurring exception around one-time exceptions
-        let currentStartMinutes = exStartMinutes;
-        let segments: {start: number, end: number}[] = [];
-        
-        // Sort overlapping blocks by start time
-        const sortedOverlaps = [...overlappingBlocks].sort((a, b) => 
-          timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-        );
-        
-        // Create segments for the parts of the recurring exception that don't overlap
-        sortedOverlaps.forEach(block => {
-          const blockStartMinutes = timeToMinutes(block.start_time);
-          const blockEndMinutes = timeToMinutes(block.end_time);
-          
-          // Add segment before this overlap if there's a gap
-          if (currentStartMinutes < blockStartMinutes) {
-            segments.push({
-              start: currentStartMinutes,
-              end: blockStartMinutes
-            });
-          }
-          
-          // Update current start to after this overlap
-          currentStartMinutes = Math.max(currentStartMinutes, blockEndMinutes);
-        });
-        
-        // Add final segment if needed
-        if (currentStartMinutes < exEndMinutes) {
-          segments.push({
-            start: currentStartMinutes,
-            end: exEndMinutes
-          });
-        }
-        
-        // Add each segment as a separate block
-        segments.forEach((segment, index) => {
-          processedExceptionBlocks.push({
-            id: `${ex.id}-split-${index}`,
-            start_time: minutesToTimeString(segment.start),
-            end_time: minutesToTimeString(segment.end),
-            is_recurring: true,
-            type: 'time-off',
-            reason: ex.reason,
-            original: ex,
-            is_all_day: ex.is_all_day
-          });
-        });
-      } else {
-        // For one-time exceptions, they take precedence over recurring ones
-        // Just add them as is
-        processedExceptionBlocks.push({
-          id: ex.id,
-          start_time: ex.start_time,
-          end_time: ex.end_time,
-          is_recurring: ex.is_recurring,
-          type: 'time-off',
-          reason: ex.reason,
-          original: ex,
-          is_all_day: ex.is_all_day
-        });
-      }
-    });
-    
-    // Convert processed exceptions to TimeBlock format
-    const exceptionBlocks = processedExceptionBlocks;
-
-    // If there are no availability blocks, just return the exception blocks
-    if (availabilityBlocks.length === 0) {
-      return exceptionBlocks.sort((a, b) => 
-        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-      );
-    }
-
-    // If there are no exception blocks, just return the availability blocks
-    if (exceptionBlocks.length === 0) {
-      return availabilityBlocks.sort((a, b) => 
-        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-      );
-    }
-
-    // Create a unified timeline by splitting availability blocks around time off blocks
-    let unifiedBlocks: TimeBlock[] = [];
-
-    // Process each availability block
-    availabilityBlocks.forEach(availBlock => {
-      const availStartMinutes = timeToMinutes(availBlock.start_time);
-      const availEndMinutes = timeToMinutes(availBlock.end_time);
-      
-      // Find all overlapping time off blocks
-      const overlappingExceptions = exceptionBlocks.filter(exBlock => {
-        const exStartMinutes = timeToMinutes(exBlock.start_time);
-        const exEndMinutes = timeToMinutes(exBlock.end_time);
-        
-        return (
-          (exStartMinutes >= availStartMinutes && exStartMinutes < availEndMinutes) ||
-          (exEndMinutes > availStartMinutes && exEndMinutes <= availEndMinutes) ||
-          (exStartMinutes <= availStartMinutes && exEndMinutes >= availEndMinutes)
-        );
-      }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
-      
-      // If no overlapping exceptions, add the availability block as is
-      if (overlappingExceptions.length === 0) {
-        unifiedBlocks.push(availBlock);
-        return;
-      }
-      
-      // Split the availability block around the time off blocks
-      let currentStartMinutes = availStartMinutes;
-      
-      overlappingExceptions.forEach(exBlock => {
-        const exStartMinutes = timeToMinutes(exBlock.start_time);
-        const exEndMinutes = timeToMinutes(exBlock.end_time);
-        
-        // Add availability block before the time off if there's a gap
-        if (currentStartMinutes < exStartMinutes) {
-          unifiedBlocks.push({
-            ...availBlock,
-            id: `${availBlock.id}-split-${currentStartMinutes}-${exStartMinutes}`,
-            start_time: minutesToTimeString(currentStartMinutes),
-            end_time: minutesToTimeString(exStartMinutes),
-            original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
-            is_all_day: availBlock.is_all_day
-          });
-        }
-        
-        // Add the time off block
-        unifiedBlocks.push(exBlock);
-        
-        // Update the current start time to after this time off block
-        currentStartMinutes = Math.max(currentStartMinutes, exEndMinutes);
-      });
-      
-      // Add the final availability block after all time off blocks if needed
-      if (currentStartMinutes < availEndMinutes) {
-        unifiedBlocks.push({
-          ...availBlock,
-          id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
-          start_time: minutesToTimeString(currentStartMinutes),
-          end_time: minutesToTimeString(availEndMinutes),
-          original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
-          is_all_day: availBlock.is_all_day
-        });
-      }
-    });
-    
-    // Sort the unified blocks by start time
-    return unifiedBlocks.sort((a, b) => 
-      timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-    );
-  };
-  
-  // Helper function to convert minutes to time string (HH:MM:SS)
-  const minutesToTimeString = (minutes: number): string => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:00`;
-  };
-  
-  // Function to format time for display (e.g., "08:00:00" -> "8:00 AM")
-  const formatDisplayTime = (timeString: string): string => {
-    return format(new Date(`2000-01-01T${timeString}`), 'h:mm a');
-  };
-  
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   
   // Get the date range for the title
@@ -414,144 +153,6 @@ export default function WeeklyView({
       const appointmentDateString = format(appointmentDate, 'yyyy-MM-dd');
       return appointmentDateString === formattedDate;
     });
-  };
-
-  // Create a unified timeline that includes appointments
-  const createUnifiedTimelineWithAppointments = (
-    availabilityBlocks: TimeBlock[],
-    dayAppointments: Appointment[]
-  ): TimeBlock[] => {
-    if (!dayAppointments.length) {
-      return availabilityBlocks;
-    }
-
-    // Convert appointments to TimeBlock format
-    const appointmentBlocks: TimeBlock[] = dayAppointments.map(appointment => {
-      // Get the correct start and end times
-      let startTimeStr, endTimeStr;
-      
-      if ('display_start_time' in appointment && typeof appointment.display_start_time === 'string') {
-        // Use the display time properties if available
-        startTimeStr = appointment.display_start_time;
-        endTimeStr = 'display_end_time' in appointment && typeof appointment.display_end_time === 'string' 
-          ? appointment.display_end_time 
-          : format(new Date(appointment.end_time), 'HH:mm:ss');
-      } else if ('formatted_start_time' in appointment && typeof appointment.formatted_start_time === 'string') {
-        // Use the formatted time if available
-        const formattedStart = new Date(appointment.formatted_start_time);
-        const formattedEnd = new Date(
-          'formatted_end_time' in appointment && typeof appointment.formatted_end_time === 'string' 
-            ? appointment.formatted_end_time 
-            : appointment.end_time
-        );
-        startTimeStr = format(formattedStart, 'HH:mm:ss');
-        endTimeStr = format(formattedEnd, 'HH:mm:ss');
-      } else {
-        // Fall back to regular time handling
-        const startDate = new Date(appointment.start_time);
-        const endDate = new Date(appointment.end_time);
-        startTimeStr = format(startDate, 'HH:mm:ss');
-        endTimeStr = format(endDate, 'HH:mm:ss');
-      }
-      
-      // Get client name safely with proper type checking
-      let clientName: string | undefined = undefined;
-      if ('client' in appointment && 
-          appointment.client && 
-          typeof appointment.client === 'object' && 
-          'name' in appointment.client) {
-        clientName = appointment.client.name as string;
-      }
-      
-      return {
-        id: `appointment-${appointment.id}`,
-        start_time: startTimeStr,
-        end_time: endTimeStr,
-        is_recurring: false,
-        type: 'appointment' as any, // Type assertion to make TypeScript happy
-        reason: appointment.notes, // Keep reason for internal use, but we won't display it
-        original: appointment,
-        client_name: clientName,
-        status: appointment.status
-      } as TimeBlock;
-    });
-
-    // If there are no availability blocks, just return the appointment blocks
-    if (availabilityBlocks.length === 0) {
-      return appointmentBlocks.sort((a, b) => 
-        timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-      );
-    }
-
-    // Create a unified timeline by splitting availability blocks around appointment blocks
-    let unifiedBlocks: TimeBlock[] = [];
-
-    // Process each availability block
-    availabilityBlocks.forEach(availBlock => {
-      const availStartMinutes = timeToMinutes(availBlock.start_time);
-      const availEndMinutes = timeToMinutes(availBlock.end_time);
-      
-      // Find all overlapping appointment blocks
-      const overlappingAppointments = appointmentBlocks.filter(apptBlock => {
-        const apptStartMinutes = timeToMinutes(apptBlock.start_time);
-        const apptEndMinutes = timeToMinutes(apptBlock.end_time);
-        
-        return (
-          (apptStartMinutes >= availStartMinutes && apptStartMinutes < availEndMinutes) ||
-          (apptEndMinutes > availStartMinutes && apptEndMinutes <= availEndMinutes) ||
-          (apptStartMinutes <= availStartMinutes && apptEndMinutes >= availEndMinutes)
-        );
-      }).sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
-      
-      // If no overlapping appointments, add the availability block as is
-      if (overlappingAppointments.length === 0) {
-        unifiedBlocks.push(availBlock);
-        return;
-      }
-      
-      // Split the availability block around the appointment blocks
-      let currentStartMinutes = availStartMinutes;
-      
-      overlappingAppointments.forEach(apptBlock => {
-        const apptStartMinutes = timeToMinutes(apptBlock.start_time);
-        const apptEndMinutes = timeToMinutes(apptBlock.end_time);
-        
-        // Add availability block before the appointment if there's a gap
-        if (currentStartMinutes < apptStartMinutes) {
-          unifiedBlocks.push({
-            ...availBlock,
-            id: `${availBlock.id}-split-${currentStartMinutes}-${apptStartMinutes}`,
-            start_time: minutesToTimeString(currentStartMinutes),
-            end_time: minutesToTimeString(apptStartMinutes),
-            original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
-            is_all_day: availBlock.is_all_day
-          });
-        }
-        
-        // Add the appointment block
-        unifiedBlocks.push(apptBlock);
-        
-        // Update the current start time to after this appointment block
-        currentStartMinutes = Math.max(currentStartMinutes, apptEndMinutes);
-      });
-      
-      // Add the final availability block after all appointment blocks if needed
-      if (currentStartMinutes < availEndMinutes) {
-        unifiedBlocks.push({
-          ...availBlock,
-          id: `${availBlock.id}-split-${currentStartMinutes}-${availEndMinutes}`,
-          start_time: minutesToTimeString(currentStartMinutes),
-          end_time: minutesToTimeString(availEndMinutes),
-          original_time: `${availBlock.start_time} - ${availBlock.end_time}`,
-          is_all_day: availBlock.is_all_day
-        });
-      }
-    });
-    
-    // Sort the unified blocks by start time
-    return unifiedBlocks.sort((a, b) => 
-      timeToMinutes(a.start_time) - timeToMinutes(b.start_time)
-    );
   };
 
   return (
@@ -603,20 +204,12 @@ export default function WeeklyView({
         
         if (specificDateAvailability.length === 0) {
           // Show recurring availability
-          // Only show recurring availability for dates after it was created
+          // Only show recurring availability for dates on or after it was created
           dayAvailability = availability.filter(slot => {
             if (!slot.is_recurring || slot.day_of_week !== index) return false;
             
-            // If this is a past date, check if the availability was created before this date
-            if (isPastDate) {
-              const createdAt = new Date(slot.created_at);
-              const dateToCheck = new Date(currentDay);
-              // Only show recurring availability if it was created before this date
-              return createdAt < dateToCheck;
-            }
-            
-            // For current and future dates, show all recurring availability
-            return true;
+            // Use the utility function to determine if we should show this recurring availability
+            return shouldShowRecurringForDate(currentDay, slot.created_at);
           });
         }
         
@@ -625,27 +218,23 @@ export default function WeeklyView({
         const recurringExceptions = exceptions.filter(ex => {
           if (!ex.is_recurring || ex.day_of_week !== index) return false;
           
-          // If this is a past date, check if the exception was created before this date
-          if (isPastDate) {
-            const createdAt = new Date(ex.created_at);
-            const dateToCheck = new Date(currentDay);
-            // Only show recurring exceptions if they were created before this date
-            return createdAt < dateToCheck;
-          }
-          
-          // For current and future dates, show all recurring exceptions
-          return true;
+          // Use the utility function to determine if we should show this recurring exception
+          return shouldShowRecurringForDate(currentDay, ex.created_at);
         });
         
         // Combine specific date exceptions with recurring exceptions
         const dayExceptions = [...specificDateExceptions, ...recurringExceptions];
-
-        // Create a unified timeline of availability and time off blocks
-        const timelineBlocks = createUnifiedTimeline(dayAvailability, dayExceptions);
         
-        // Add appointments to the timeline
+        // Get appointments for this day
         const dayAppointments = getAppointmentsForDay(index);
-        const finalTimelineBlocks = createUnifiedTimelineWithAppointments(timelineBlocks, dayAppointments);
+        
+        // Create a unified timeline with all blocks and conflicts resolved
+        const finalTimelineBlocks = createUnifiedTimeBlocks(
+          dayAvailability, 
+          dayExceptions, 
+          dayAppointments,
+          currentDay
+        );
 
         return (
           <div key={day} className="border rounded-lg p-4 shadow-sm">
@@ -779,7 +368,7 @@ export default function WeeklyView({
                                     <p>
                                       This is part of a larger availability block 
                                       ({block.original_time ? 
-                                        `${formatDisplayTime(block.original_time.split(' - ')[0])} - ${formatDisplayTime(block.original_time.split(' - ')[1])}` : 
+                                        `${format(new Date(`2000-01-01T${block.original_time.split(' - ')[0]}`), 'h:mm a')} - ${format(new Date(`2000-01-01T${block.original_time.split(' - ')[1]}`), 'h:mm a')}` : 
                                         'full day'
                                       }). 
                                       Click to edit the original block.

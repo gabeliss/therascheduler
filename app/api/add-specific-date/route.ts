@@ -9,7 +9,6 @@ const supabaseAdmin = createClient(
 
 export async function GET() {
   try {
-    console.log('Adding specific_date column to availability table...');
     
     // First, check if the column already exists
     const { error: checkError } = await supabaseAdmin
@@ -18,13 +17,8 @@ export async function GET() {
       .limit(1);
       
     if (!checkError) {
-      console.log('Column already exists!');
       return NextResponse.json({ success: true, message: 'Column already exists' });
     }
-    
-    // If we get here, the column doesn't exist
-    // Let's modify our code to handle this case
-    console.log('Column does not exist, updating code to handle this...');
     
     return NextResponse.json({ 
       success: true, 

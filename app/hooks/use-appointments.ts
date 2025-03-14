@@ -92,13 +92,6 @@ export function useAppointments() {
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const timezoneOffset = startDate.getTimezoneOffset();
         
-        console.log('Timezone debugging:');
-        console.log('User timezone:', userTimezone);
-        console.log('Timezone offset (minutes):', timezoneOffset);
-        console.log('Original UTC start time:', startTimeUTC);
-        console.log('Local start time:', formattedStartTime);
-        console.log('Display start time:', displayStartTime);
-        
         return {
           ...appointment,
           // Store the original ISO string to preserve the exact time

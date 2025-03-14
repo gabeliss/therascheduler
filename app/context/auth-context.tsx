@@ -4,8 +4,6 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../utils/supabase';
 
-// Log that we're using the shared Supabase client
-console.log('Auth context using shared Supabase client');
 
 interface AuthContextType {
   user: User | null;
@@ -24,11 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Initial auth session:', {
-        hasSession: !!session,
-        userId: session?.user?.id,
-        email: session?.user?.email,
-      });
+
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -37,11 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('Auth state changed:', {
-        event: _event,
-        hasSession: !!session,
-        userId: session?.user?.id,
-      });
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -118,11 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await supabase.auth.signOut();
         throw new Error(errorData.error || 'Failed to create therapist profile');
       }
-      
-      const profileData = await response.json();
-      console.log('Profile creation response:', profileData);
 
-      console.log('Therapist profile created successfully');
       
       // Note: At this point, the user needs to verify their email
       // before they can access their account

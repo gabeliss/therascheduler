@@ -342,7 +342,7 @@ export default function AppointmentsPage() {
         override_reason: overrideReason
       };
       
-      const result = await createAppointment(appointmentData);
+      const result = await createAppointment(appointmentData, true);
       
       if (!result.success) {
         throw new Error('Failed to create appointment with override');

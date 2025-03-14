@@ -13,15 +13,6 @@ export function useUnifiedAvailability() {
   const { user } = useAuth();
   const { therapistProfile, loading: profileLoading, error: profileError } = useTherapistProfile();
 
-  // Log when therapistProfile changes
-  useEffect(() => {
-    console.log("PROFILE CHANGE DETECTED in useUnifiedAvailability:", { 
-      therapistProfile, 
-      profileLoading, 
-      profileError 
-    });
-  }, [therapistProfile, profileLoading, profileError]);
-
   // Helper function to convert time string to minutes for comparison
   const timeToMinutes = (timeStr: string): number => {
     const [hours, minutes] = timeStr.split(':').map(Number);
@@ -34,22 +25,14 @@ export function useUnifiedAvailability() {
       setLoading(true);
       setError(null);
 
-      console.log("Fetching unified availability...");
-      
       // If user is not authenticated, don't try to fetch data
       if (!user) {
-        console.log("No authenticated user, skipping fetch");
         setLoading(false);
         return;
       }
       
-      console.log("Therapist profile in fetchUnifiedAvailability:", therapistProfile);
-      console.log("Profile loading state:", profileLoading);
-      console.log("Profile error state:", profileError);
-      
       // If profile is still loading, wait for it
       if (profileLoading) {
-        console.log("Profile is still loading, waiting...");
         return;
       }
       
@@ -80,7 +63,6 @@ export function useUnifiedAvailability() {
   
   // Helper function to fetch exceptions with a given profile
   async function fetchExceptionsWithProfile(profile: any) {
-    console.log("Fetching exceptions for therapist ID:", profile.id);
 
     // Fetch unified exceptions
     const { data: exceptionsData, error: exceptionsError } = await supabase
@@ -95,13 +77,11 @@ export function useUnifiedAvailability() {
       return;
     }
 
-    console.log("Exceptions fetched:", exceptionsData);
     setUnifiedAvailability(exceptionsData as UnifiedAvailabilityException[] || []);
   }
 
   // Initial fetch
   useEffect(() => {
-    console.log("useEffect triggered, user:", user, "therapistProfile:", therapistProfile);
     if (user && !profileLoading) {
       fetchUnifiedAvailability();
     }

@@ -22,18 +22,13 @@ export function useTherapistProfile() {
   async function fetchTherapistProfile() {
     setLoading(true);
     setError(null);
-    console.log('Fetching therapist profile...');
 
     try {
       if (!user) {
-        console.log('No authenticated user');
         setError('Not authenticated. Please sign in.');
         setLoading(false);
         return;
       }
-
-      console.log('User authenticated:', user.id);
-      console.log('User email:', user.email);
       
       // Query the database for the therapist profile
       const { data: profiles, error: queryError } = await supabase
@@ -41,15 +36,12 @@ export function useTherapistProfile() {
         .select('*')
         .eq('user_id', user.id);
       
-      console.log('Query result:', { data: profiles, error: queryError });
-      
       if (queryError) {
         console.error('Error querying therapist profile:', queryError);
         throw new Error(`Error querying therapist profile: ${queryError.message}`);
       }
       
       if (profiles && profiles.length > 0) {
-        console.log('Found profile:', profiles[0]);
         setTherapistProfile(profiles[0] as TherapistProfile);
         setLoading(false);
         return;

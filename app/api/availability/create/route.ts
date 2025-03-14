@@ -96,7 +96,6 @@ export async function POST(request: Request) {
   try {
     const availabilityData = await request.json();
     
-    console.log('Creating availability with service role:', availabilityData);
 
     // Validate required fields
     if (!availabilityData.therapist_id || 
@@ -196,7 +195,6 @@ export async function POST(request: Request) {
         );
       }
 
-      console.log('Availability created successfully:', data);
       return NextResponse.json(data);
     } catch (err: unknown) {
       clearTimeout(timeoutId);
