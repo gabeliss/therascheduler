@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/app/utils/supabase';
-import { Loader2, Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { Loader2, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -58,18 +58,26 @@ export default function EmbeddedBookingPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  // Send messages to parent window
+  const sendMessageToParent = (message: any) => {
+    if (window.parent) {
+      window.parent.postMessage(message, '*');
+    }
+  };
+
   // Fetch therapist info on load
   useEffect(() => {
     async function fetchTherapistInfo() {
       if (!therapistId) {
         setError('No therapist specified. Please use a valid booking link.');
         setTherapistLoading(false);
+        sendMessageToParent({ type: 'booking-error', message: 'No therapist specified' });
         return;
       }
 
       try {
         const { data, error } = await supabase
-          .from('therapists')
+          .from('therapist_profiles')
           .select('id, name, email')
           .eq('id', therapistId)
           .single();
@@ -77,12 +85,14 @@ export default function EmbeddedBookingPage() {
         if (error) throw error;
         if (!data) {
           setError('Therapist not found. Please check your booking link.');
+          sendMessageToParent({ type: 'booking-error', message: 'Therapist not found' });
         } else {
           setTherapist(data);
         }
       } catch (err) {
         console.error('Error fetching therapist:', err);
         setError('Unable to load therapist information. Please try again later.');
+        sendMessageToParent({ type: 'booking-error', message: 'Unable to load therapist information' });
       } finally {
         setTherapistLoading(false);
       }
@@ -142,6 +152,7 @@ export default function EmbeddedBookingPage() {
     } catch (err) {
       console.error('Error fetching availability:', err);
       setError('Failed to load available time slots. Please try again.');
+      sendMessageToParent({ type: 'booking-error', message: 'Failed to load available time slots' });
     } finally {
       setLoading(false);
     }
@@ -258,11 +269,42 @@ export default function EmbeddedBookingPage() {
       // Success!
       setSuccess(true);
       
-      // TODO: Send email notifications
+      // Send success message to parent window
+      sendMessageToParent({ 
+        type: 'booking-success', 
+        data: {
+          therapistName: therapist.name,
+          clientName: formData.name,
+          appointmentDate: format(date, 'EEEE, MMMM do, yyyy'),
+          appointmentTime: format(parse(selectedTime, 'HH:mm', new Date()), 'h:mm a')
+        }
+      });
+      
+      // Send email notification request
+      try {
+        await fetch('/api/email/appointment-request', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            therapistId: therapist.id,
+            clientName: formData.name,
+            clientEmail: formData.email,
+            appointmentDate: format(date, 'EEEE, MMMM do, yyyy'),
+            appointmentTime: format(parse(selectedTime, 'HH:mm', new Date()), 'h:mm a'),
+            notes: formData.notes
+          }),
+        });
+      } catch (emailError) {
+        console.error('Error sending email notification:', emailError);
+        // Don't fail the booking if email fails
+      }
       
     } catch (err) {
       console.error('Error booking appointment:', err);
       setError('Failed to book appointment. Please try again.');
+      sendMessageToParent({ type: 'booking-error', message: 'Failed to book appointment' });
     } finally {
       setLoading(false);
     }
@@ -298,12 +340,28 @@ export default function EmbeddedBookingPage() {
             <Card>
               <CardContent className="pt-6">
                 <div className="text-center space-y-4">
+                  <div className="flex justify-center">
+                    <CheckCircle2 className="h-12 w-12 text-green-500" />
+                  </div>
                   <h2 className="text-xl font-semibold text-green-600">Appointment Request Submitted!</h2>
                   <p>Your appointment request has been sent to {therapist.name}. You will receive a confirmation email once it's approved.</p>
+                  <div className="bg-gray-50 p-4 rounded-md text-sm">
+                    <p className="font-medium">Appointment Details:</p>
+                    <p>Date: {format(date!, 'EEEE, MMMM do, yyyy')}</p>
+                    <p>Time: {format(parse(selectedTime!, 'HH:mm', new Date()), 'h:mm a')}</p>
+                    <p>Status: Pending approval</p>
+                  </div>
                   <Button onClick={() => {
                     setSuccess(false);
                     setDate(new Date());
                     setSelectedTime(null);
+                    setFormData({
+                      name: '',
+                      email: '',
+                      phone: '',
+                      notes: '',
+                      createAccount: false
+                    });
                   }}>
                     Book Another Appointment
                   </Button>

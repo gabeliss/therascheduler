@@ -19,20 +19,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Check for user in localStorage on initial load
+  useEffect(() => {
+    try {
+      // Try to get user from localStorage first for faster initial load
+      const storedUser = localStorage.getItem('therascheduler-user');
+      if (storedUser) {
+        console.log('Found user in localStorage');
+        setUser(JSON.parse(storedUser));
+      }
+    } catch (error) {
+      console.error('Error reading from localStorage:', error);
+    }
+  }, []);
+
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const initializeAuth = async () => {
+      try {
+        setLoading(true);
+        console.log('Initializing auth...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          return;
+        }
+        
+        console.log('Session found:', !!session);
+        
+        if (session?.user) {
+          setUser(session.user);
+          // Store user in localStorage for persistence
+          try {
+            localStorage.setItem('therascheduler-user', JSON.stringify(session.user));
+          } catch (error) {
+            console.error('Error storing user in localStorage:', error);
+          }
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Error getting session:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    initializeAuth();
 
     // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
+      console.log('Auth state changed:', _event, !!session);
+      
+      if (session?.user) {
+        setUser(session.user);
+        // Update user in localStorage
+        try {
+          localStorage.setItem('therascheduler-user', JSON.stringify(session.user));
+        } catch (error) {
+          console.error('Error storing user in localStorage:', error);
+        }
+      } else {
+        setUser(null);
+        // Remove user from localStorage
+        try {
+          localStorage.removeItem('therascheduler-user');
+        } catch (error) {
+          console.error('Error removing user from localStorage:', error);
+        }
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -40,21 +98,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     console.log('Attempting to sign in with email:', email);
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    setLoading(true);
     
-    if (error) {
-      console.error('Sign in error:', error.message);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        console.error('Sign in error:', error.message);
+        throw error;
+      }
+      
+      console.log('Sign in successful:', {
+        userId: data.user?.id,
+        email: data.user?.email,
+        hasSession: !!data.session,
+      });
+  
+      // Explicitly set the user state after successful login
+      if (data.user) {
+        setUser(data.user);
+        // Store user in localStorage
+        try {
+          localStorage.setItem('therascheduler-user', JSON.stringify(data.user));
+        } catch (error) {
+          console.error('Error storing user in localStorage:', error);
+        }
+      }
+    } catch (error) {
       throw error;
+    } finally {
+      setLoading(false);
     }
-    
-    console.log('Sign in successful:', {
-      userId: data.user?.id,
-      email: data.user?.email,
-      hasSession: !!data.session,
-    });
   };
 
   const signUp = async (email: string, password: string, name: string) => {
@@ -120,9 +197,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Sign out error:', error.message);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Sign out error:', error.message);
+        throw error;
+      }
+      
+      // Clear user from localStorage
+      try {
+        localStorage.removeItem('therascheduler-user');
+      } catch (error) {
+        console.error('Error removing user from localStorage:', error);
+      }
+      
+      setUser(null);
+    } catch (error) {
+      console.error('Error during sign out:', error);
       throw error;
     }
   };

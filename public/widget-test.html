@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TheraScheduler Widget Test Page</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eaeaea;
+    }
+    h1 {
+      color: #0f766e;
+    }
+    .container {
+      background-color: #f9fafb;
+      border-radius: 8px;
+      padding: 30px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .instructions {
+      background-color: #f0f9ff;
+      border-left: 4px solid #0ea5e9;
+      padding: 15px;
+      margin-bottom: 30px;
+    }
+    .custom-button {
+      background-color: #4f46e5;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 20px;
+    }
+    .custom-button:hover {
+      background-color: #4338ca;
+    }
+    .section {
+      margin-bottom: 40px;
+    }
+    code {
+      background-color: #f1f5f9;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    .color-input {
+      display: flex;
+      gap: 10px;
+    }
+    .color-input input[type="color"] {
+      width: 50px;
+    }
+    .color-input input[type="text"] {
+      flex: 1;
+    }
+    .primary-button {
+      background-color: #0f766e;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .primary-button:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TheraScheduler Widget Test Page</h1>
+    <p>Use this page to test your booking widget before adding it to your website.</p>
+  </header>
+
+  <div class="container">
+    <div class="instructions">
+      <h3>How to use this test page:</h3>
+      <ol>
+        <li>Enter your therapist ID and customization options below.</li>
+        <li>Click "Apply Settings" to update the widget.</li>
+        <li>Test the booking flow by clicking the buttons below.</li>
+      </ol>
+    </div>
+
+    <form id="widget-settings-form">
+      <div class="form-group">
+        <label for="therapistId">Your Therapist ID (required):</label>
+        <input type="text" id="therapistId" name="therapistId" required placeholder="Enter your therapist ID">
+      </div>
+      
+      <div class="form-group">
+        <label for="primaryColor">Primary Color:</label>
+        <div class="color-input">
+          <input type="color" id="primaryColor" name="primaryColor" value="#0f766e">
+          <input type="text" id="primaryColorText" value="#0f766e">
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label for="buttonText">Button Text:</label>
+        <input type="text" id="buttonText" name="buttonText" value="Book Appointment">
+      </div>
+      
+      <div class="form-group">
+        <label for="modalTitle">Modal Title:</label>
+        <input type="text" id="modalTitle" name="modalTitle" value="Book Your Appointment">
+      </div>
+      
+      <button type="submit" class="primary-button">Apply Settings</button>
+    </form>
+  </div>
+
+  <div class="container">
+    <div class="section">
+      <h2>Default Button</h2>
+      <p>This is the default booking button that comes with the widget:</p>
+      <div data-therascheduler-booking="true"></div>
+    </div>
+
+    <div class="section">
+      <h2>Custom Button</h2>
+      <p>You can also style your own button and add the <code>data-therascheduler-booking</code> attribute:</p>
+      <button class="custom-button" data-therascheduler-booking="true">Schedule a Consultation</button>
+    </div>
+
+    <div class="section">
+      <h2>Programmatic Control</h2>
+      <p>You can also open the booking widget programmatically:</p>
+      <button onclick="window.openTheraScheduler && window.openTheraScheduler()" class="custom-button">Open Widget via JavaScript</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>Implementation Code</h2>
+    <p>Here's the code you'll need to add to your website:</p>
+    <pre><code id="embed-code">&lt;script src="https://yourapp.com/api/embed?therapistId=YOUR_THERAPIST_ID"&gt;&lt;/script&gt;
+&lt;div data-therascheduler-booking="true"&gt;&lt;/div&gt;</code></pre>
+    <p>For more customization options and documentation, visit the <a href="/dashboard/widget">Widget Dashboard</a>.</p>
+  </div>
+
+  <footer>
+    <p>TheraScheduler - Simplifying appointment scheduling for therapists</p>
+  </footer>
+
+  <!-- The script tag will be added dynamically -->
+  <div id="script-container"></div>
+
+  <script>
+    // Handle form submission
+    document.getElementById('widget-settings-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      // Get form values
+      const therapistId = document.getElementById('therapistId').value;
+      const primaryColor = document.getElementById('primaryColor').value;
+      const buttonText = document.getElementById('buttonText').value;
+      const modalTitle = document.getElementById('modalTitle').value;
+      
+      if (!therapistId) {
+        alert('Please enter your therapist ID');
+        return;
+      }
+      
+      // Update color text input when color picker changes
+      document.getElementById('primaryColor').addEventListener('input', function() {
+        document.getElementById('primaryColorText').value = this.value;
+      });
+      
+      // Update color picker when text input changes
+      document.getElementById('primaryColorText').addEventListener('input', function() {
+        document.getElementById('primaryColor').value = this.value;
+      });
+      
+      // Build the query string
+      const params = new URLSearchParams({
+        therapistId,
+        primaryColor,
+        buttonText,
+        modalTitle
+      }).toString();
+      
+      // Update the embed code display
+      const baseUrl = window.location.origin;
+      document.getElementById('embed-code').textContent = 
+        `<script src="${baseUrl}/api/embed?${params}"><\/script>\n<div data-therascheduler-booking="true"></div>`;
+      
+      // Remove any existing script
+      const oldScript = document.querySelector('script[src*="/api/embed"]');
+      if (oldScript) {
+        oldScript.remove();
+      }
+      
+      // Add the new script
+      const script = document.createElement('script');
+      script.src = `${baseUrl}/api/embed?${params}`;
+      document.getElementById('script-container').appendChild(script);
+    });
+    
+    // Initialize color input sync
+    document.getElementById('primaryColor').addEventListener('input', function() {
+      document.getElementById('primaryColorText').value = this.value;
+    });
+    
+    document.getElementById('primaryColorText').addEventListener('input', function() {
+      document.getElementById('primaryColor').value = this.value;
+    });
+  </script>
+</body>
+</html> 

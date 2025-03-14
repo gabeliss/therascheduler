@@ -17,6 +17,28 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    storageKey: 'therascheduler-auth',
+    storage: {
+      getItem: (key) => {
+        if (typeof window === 'undefined') {
+          return null;
+        }
+        const value = localStorage.getItem(key);
+        return value;
+      },
+      setItem: (key, value) => {
+        if (typeof window !== 'undefined') {
+          console.log('Setting auth in storage:', key);
+          localStorage.setItem(key, value);
+        }
+      },
+      removeItem: (key) => {
+        if (typeof window !== 'undefined') {
+          console.log('Removing auth from storage:', key);
+          localStorage.removeItem(key);
+        }
+      },
+    },
   },
 });
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/context/auth-context';
 import { Button } from '@/components/ui/button';
@@ -12,20 +12,75 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { signIn } = useAuth();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirectTo') || '/dashboard';
+  const { signIn, user, loading: authLoading } = useAuth();
+
+  // If user is already logged in, redirect them
+  useEffect(() => {
+    if (user && !authLoading) {
+      // Ensure we're not redirecting to the login page itself
+      const finalRedirect = redirectTo.includes('/auth/login') ? '/dashboard' : redirectTo;
+      console.log('User is logged in, redirecting to:', finalRedirect);
+      
+      // Use direct navigation for more reliable redirect with all parameters preserved
+      window.location.href = finalRedirect;
+    }
+  }, [user, redirectTo, authLoading]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     try {
       await signIn(email, password);
-      router.push('/dashboard'); // Redirect to dashboard after successful login
-    } catch {
+      console.log('Sign in successful');
+      
+      // Store login success in localStorage to help with redirect issues
+      localStorage.setItem('therascheduler-login-success', 'true');
+      
+      // Check if we have a redirectTo parameter
+      if (redirectTo && redirectTo !== '/dashboard') {
+        console.log('Redirecting to:', redirectTo);
+        // Use direct navigation for more reliable redirect with all parameters preserved
+        window.location.href = redirectTo;
+      } else {
+        console.log('Redirecting to dashboard');
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      console.error('Sign in error:', err);
       setError('Failed to sign in. Please check your credentials.');
+      setLoading(false);
     }
   };
+
+  // If we're still loading auth state, show a loading indicator
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is already logged in, show loading while redirecting
+  if (user) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4">Redirecting to dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center py-12">
@@ -77,8 +132,8 @@ export default function LoginPage() {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col space-y-4 pt-6">
-              <Button type="submit" className="w-full">
-                Sign In
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? 'Signing in...' : 'Sign In'}
               </Button>
               <p className="text-sm text-center">
                 Don&apos;t have an account?{' '}
