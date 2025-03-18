@@ -67,7 +67,7 @@ async function checkForOverlappingSlots(
 ): Promise<boolean> {
   // Query to find existing availability slots for the therapist on the same day
   const query = supabaseAdmin
-    .from('availability')
+    .from('therapist_availability')
     .select('*')
     .eq('therapist_id', therapistId);
 
@@ -180,7 +180,7 @@ export async function POST(request: Request) {
     
     try {
       const { data, error } = await supabaseAdmin
-        .from('availability')
+        .from('therapist_availability')
         .insert([availabilityData])
         .select()
         .single();

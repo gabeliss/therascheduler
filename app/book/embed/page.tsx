@@ -122,7 +122,7 @@ export default function EmbeddedBookingPage() {
       
       // Fetch recurring availability for the day of week
       const { data: recurringData, error: recurringError } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .select('id, therapist_id, start_time, end_time, day_of_week')
         .eq('day_of_week', dayOfWeek)
         .eq('is_recurring', true)
@@ -132,7 +132,7 @@ export default function EmbeddedBookingPage() {
       
       // Fetch specific availability for the selected date
       const { data: specificData, error: specificError } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .select('id, therapist_id, start_time, end_time, day_of_week')
         .eq('specific_date', formattedDate)
         .eq('is_recurring', false)

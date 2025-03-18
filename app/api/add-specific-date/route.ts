@@ -12,7 +12,7 @@ export async function GET() {
     
     // First, check if the column already exists
     const { error: checkError } = await supabaseAdmin
-      .from('availability')
+      .from('therapist_availability')
       .select('specific_date')
       .limit(1);
       

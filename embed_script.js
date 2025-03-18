@@ -1,32 +1,10 @@
-import { NextResponse } from 'next/server';
 
-/**
- * This API route serves the JavaScript embed code that therapists can add to their websites
- * to display the booking widget directly on their site.
- */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const therapistId = searchParams.get('therapistId');
-  
-  // Get customization options from query params
-  const primaryColor = searchParams.get('primaryColor') || '#0f766e'; // Default teal color
-  const buttonText = searchParams.get('buttonText') || 'Book Appointment';
-  const modalTitle = searchParams.get('modalTitle') || 'Book Your Appointment';
-  const widgetWidth = searchParams.get('width') || '900px';
-  const widgetHeight = searchParams.get('height') || '80vh';
-  
-  if (!therapistId) {
-    return new NextResponse('Therapist ID is required', { status: 400 });
-  }
-
-  // Create the embed script that references our secure widget-preview endpoint
-  const js = `
   (function() {
     // Therascheduler widget initialization
-    var therapistId = "${therapistId}";
-    var primaryColor = "${primaryColor}";
-    var buttonText = "${buttonText}";
-    var modalTitle = "${modalTitle}";
+    var therapistId = "testid";
+    var primaryColor = "#0f766e";
+    var buttonText = "Book Appointment";
+    var modalTitle = "Book Your Appointment";
     
     // Create button element
     var button = document.createElement("button");
@@ -69,7 +47,7 @@ export async function GET(request: Request) {
     modalContent.style.margin = "10% auto";
     modalContent.style.padding = "20px";
     modalContent.style.border = "1px solid #888";
-    modalContent.style.width = "${widgetWidth}";
+    modalContent.style.width = "900px";
     modalContent.style.maxWidth = "95%";
     modalContent.style.borderRadius = "8px";
     modalContent.style.position = "relative";
@@ -89,12 +67,12 @@ export async function GET(request: Request) {
     
     // Set up iframe
     iframe.style.width = "100%";
-    iframe.style.height = "${widgetHeight}";
+    iframe.style.height = "80vh";
     iframe.style.border = "none";
     iframe.style.overflow = "hidden";
     
     // Set iframe source to our secure API endpoint
-    var baseUrl = "${process.env.NEXT_PUBLIC_APP_URL || "https://therascheduler.vercel.app"}";
+    var baseUrl = "https://therascheduler.vercel.app";
     iframe.src = baseUrl + "/api/widget-preview?" + new URLSearchParams({
       therapistId: therapistId,
       primaryColor: primaryColor,
@@ -134,11 +112,4 @@ export async function GET(request: Request) {
     }
     document.body.appendChild(modal);
   })();
-  `;
-
-  return new NextResponse(js, {
-    headers: {
-      'Content-Type': 'application/javascript',
-    },
-  });
-} 
+  

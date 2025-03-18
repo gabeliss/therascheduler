@@ -37,7 +37,7 @@ export function useAvailability() {
       console.log('Using therapist profile:', therapistProfile);
 
       const { data, error } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .select('*')
         .eq('therapist_id', therapistProfile.id)
         .order('day_of_week', { ascending: true })
@@ -166,7 +166,7 @@ export function useAvailability() {
 
       // Fall back to direct insert
       const { error, data } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .insert([availabilityData])
         .select();
 
@@ -179,7 +179,7 @@ export function useAvailability() {
           delete availabilityData.specific_date;
           
           const retryResult = await supabase
-            .from('availability')
+            .from('therapist_availability')
             .insert([availabilityData])
             .select();
             
@@ -218,7 +218,7 @@ export function useAvailability() {
     try {
       // Get existing availability slots for this therapist
       let query = supabase
-        .from('availability')
+        .from('therapist_availability')
         .select('*')
         .eq('therapist_id', therapistId);
       
@@ -232,14 +232,14 @@ export function useAvailability() {
         // 1. Specific date slots on the same date
         // 2. Recurring slots on the same day of week
         const specificDateSlots = await supabase
-          .from('availability')
+          .from('therapist_availability')
           .select('*')
           .eq('therapist_id', therapistId)
           .eq('is_recurring', false)
           .eq('specific_date', specificDate);
         
         const recurringSlots = await supabase
-          .from('availability')
+          .from('therapist_availability')
           .select('*')
           .eq('therapist_id', therapistId)
           .eq('is_recurring', true)
@@ -301,7 +301,7 @@ export function useAvailability() {
   async function updateAvailability(id: string, updates: Partial<Availability>) {
     try {
       const { error } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .update(updates)
         .eq('id', id);
 
@@ -316,7 +316,7 @@ export function useAvailability() {
   async function deleteAvailability(id: string) {
     try {
       const { error } = await supabase
-        .from('availability')
+        .from('therapist_availability')
         .delete()
         .eq('id', id);
 

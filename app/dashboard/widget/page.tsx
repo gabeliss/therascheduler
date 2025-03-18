@@ -148,7 +148,7 @@ export default function WidgetPage() {
   };
 
   // Preview URL
-  const previewUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/widget/preview?${new URLSearchParams({
+  const previewUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/widget-preview?${new URLSearchParams({
     therapistId,
     primaryColor: customization.primaryColor,
     buttonText: customization.buttonText,
@@ -380,52 +380,26 @@ export default function WidgetPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="border rounded-md p-4 bg-muted/30">
-                  <div className="flex justify-center">
-                    <Button
-                      style={{ backgroundColor: customization.primaryColor }}
-                      onClick={() => {
-                        // Log the therapistId before opening the window
-                        console.log('Opening preview with therapistId:', therapistId);
-                        
-                        // Ensure therapistId is not empty before proceeding
-                        if (!therapistId) {
-                          console.error('Therapist ID is empty or undefined');
-                          toast({
-                            title: 'Error',
-                            description: 'Therapist ID is missing. Please refresh the page and try again.',
-                            variant: 'destructive'
-                          });
-                          return;
-                        }
-                        
-                        // Construct the URL with all parameters
-                        const baseUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/widget/preview`;
-                        const params = new URLSearchParams({
-                          therapistId,
-                          primaryColor: customization.primaryColor,
-                          buttonText: customization.buttonText,
-                          modalTitle: customization.modalTitle,
-                          width: customization.width,
-                          height: customization.height
-                        });
-                        
-                        // Add the parameters both as query params and as a hash
-                        // This provides a fallback in case query params are lost during navigation
-                        const url = `${baseUrl}?${params.toString()}#${params.toString()}`;
-                        console.log('Opening URL:', url);
-                        
-                        // Open the URL in a new tab
-                        window.open(url, '_blank', 'noopener,noreferrer');
-                      }}
-                      disabled={!therapistId}
-                      title={!therapistId ? "Therapist profile not loaded yet" : ""}
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Open Preview in New Tab
-                    </Button>
+                  <div className="bg-white rounded-md border overflow-hidden">
+                    <div className="h-[500px] w-full">
+                      {therapistId ? (
+                        <iframe 
+                          src={previewUrl}
+                          className="w-full h-full"
+                          title="Widget Preview"
+                          frameBorder="0"
+                        />
+                      ) : (
+                        <div className="flex justify-center items-center h-full">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                          <span className="ml-2">Loading preview...</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  
                   {!therapistId && (
                     <p className="text-sm text-red-500 mt-2 text-center">
                       Therapist profile not loaded. Please refresh the page.
@@ -436,7 +410,7 @@ export default function WidgetPage() {
                 <div className="bg-muted p-4 rounded-md">
                   <h3 className="font-medium mb-2">Testing your widget:</h3>
                   <ul className="list-disc list-inside space-y-2 text-sm">
-                    <li>Click the button above to see how your widget will appear to clients.</li>
+                    <li>The preview above shows how your widget will appear to clients.</li>
                     <li>You can test the full booking flow, including form submission.</li>
                     <li>Test appointments will appear in your dashboard for approval.</li>
                     <li>Make sure to test on different devices to ensure responsiveness.</li>
