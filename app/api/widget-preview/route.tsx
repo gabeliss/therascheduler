@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addMinutes, format, parse } from 'date-fns';
+import { addMinutes, format, parse, getDay, addDays, startOfMonth, endOfMonth, 
+         isSameMonth, isToday, isPast, isSameDay, startOfWeek, endOfWeek } from 'date-fns';
 import { supabaseAdmin } from '@/app/utils/supabase-server'; // Use the server-compatible admin client
 
 // Helper function to generate time slots from availability ranges
@@ -27,6 +28,42 @@ function generateTimeSlots(slots: any[], selectedDate: string) {
   
   // Sort by time
   return timeSlots.sort((a, b) => a.time.localeCompare(b.time));
+}
+
+// Helper function to generate calendar days for a given month
+function generateCalendarGrid(selectedDate: Date, currentMonth: Date) {
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(monthStart);
+  const startDate = startOfWeek(monthStart, { weekStartsOn: 0 }); // 0 = Sunday
+  const endDate = endOfWeek(monthEnd, { weekStartsOn: 0 });
+  
+  let day = startDate;
+  const calendarDays = [];
+  
+  // Generate week rows
+  while (day <= endDate) {
+    const weekRow = [];
+    
+    // Generate days in a week
+    for (let i = 0; i < 7; i++) {
+      const dayObj = {
+        date: format(day, 'd'),
+        fullDate: new Date(day),
+        isCurrentMonth: isSameMonth(day, monthStart),
+        isToday: isToday(day),
+        isSelected: isSameDay(day, selectedDate),
+        isPast: isPast(day) && !isToday(day),
+        dayOfWeek: getDay(day),
+      };
+      
+      weekRow.push(dayObj);
+      day = addDays(day, 1);
+    }
+    
+    calendarDays.push(weekRow);
+  }
+  
+  return calendarDays;
 }
 
 export async function GET(request: NextRequest) {
@@ -69,316 +106,372 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Failed to load therapist information', { status: 500 });
   }
   
-  // Fetch availability data
-  let availableTimeSlots: { time: string; formatted: string }[] = [];
+  // Generate calendar data for the widget
+  const currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+  const calendarDays = generateCalendarGrid(selectedDate, currentMonth);
   
-  try {
-    // Fetch recurring availability for the day of week
-    const { data: recurringData, error: recurringError } = await supabaseAdmin
-      .from('therapist_availability')
-      .select('id, therapist_id, start_time, end_time, day_of_week')
-      .eq('day_of_week', dayOfWeek)
-      .eq('is_recurring', true)
-      .eq('therapist_id', therapistId);
+  // Create calendar HTML
+  let calendarHtml = '';
+  
+  // Generate day headers
+  const dayHeaders = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => 
+    `<div class="day-header">${day}</div>`
+  ).join('');
+  
+  // Generate calendar grid
+  for (const week of calendarDays) {
+    const weekHtml = week.map(day => {
+      const classNames = [
+        'calendar-day',
+        !day.isCurrentMonth ? 'other-month' : '',
+        day.isToday ? 'today' : '',
+        day.isSelected ? 'selected' : '',
+        day.isPast ? 'past' : ''
+      ].filter(Boolean).join(' ');
+      
+      const dataDate = format(day.fullDate, 'yyyy-MM-dd');
+      const isDisabled = day.isPast ? 'disabled' : '';
+      
+      return `<div class="${classNames}" data-date="${dataDate}" ${isDisabled}>${day.date}</div>`;
+    }).join('');
     
-    if (recurringError) throw recurringError;
-    
-    // Fetch specific availability for the selected date
-    const { data: specificData, error: specificError } = await supabaseAdmin
-      .from('therapist_availability')
-      .select('id, therapist_id, start_time, end_time, day_of_week')
-      .eq('specific_date', formattedDate)
-      .eq('is_recurring', false)
-      .eq('therapist_id', therapistId);
-    
-    if (specificError) throw specificError;
-    
-    // Combine both types of availability
-    const allSlots = [...(recurringData || []), ...(specificData || [])];
-    
-    // Generate time slots from availability
-    if (allSlots.length > 0) {
-      availableTimeSlots = generateTimeSlots(allSlots, formattedDate);
-    }
-  } catch (error) {
-    console.error('Error fetching availability:', error);
+    calendarHtml += weekHtml;
   }
+  
+  // Remove the unused timeSlotsHtml code since we're now loading dynamically
+  const initialTimeSlots = `
+    <div class="loading-spinner">Loading available times...</div>
+  `;
   
   // Define inline styles
   const styles = `
-    :root {
-      --primary-color: ${primaryColor};
-      --background-color: white;
-      --text-color: #333;
-      --border-color: #ddd;
-    }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       margin: 0;
       padding: 0;
-      color: var(--text-color);
-      background: var(--background-color);
+      background-color: #f9fafb;
+      color: #111827;
     }
     .container {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 1rem;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 1.5rem;
+      background-color: white;
+      border-radius: 0.75rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     }
     .heading {
-      font-weight: bold;
+      margin-top: 0;
+      margin-bottom: 1.5rem;
       font-size: 1.5rem;
-      margin-bottom: 1rem;
-    }
-    .card {
-      border: 1px solid var(--border-color);
-      border-radius: 0.5rem;
-      padding: 1rem;
-      margin-bottom: 1rem;
-      background: white;
+      font-weight: 600;
+      color: #111827;
+      text-align: center;
     }
     .grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+      gap: 1.5rem;
     }
-    @media (max-width: 768px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
+    .card {
+      padding: 1.25rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     }
     .section-title {
-      font-weight: 600;
-      font-size: 1rem;
-      margin-bottom: 0.5rem;
       display: flex;
       align-items: center;
-    }
-    .calendar {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 0.25rem;
-      margin-top: 0.5rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #4b5563;
+      font-size: 1rem;
     }
     .calendar-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-weight: 600;
     }
-    .calendar-day {
-      aspect-ratio: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      font-size: 0.875rem;
-      cursor: pointer;
-    }
-    .calendar-day:hover {
-      background-color: #f5f5f5;
-    }
-    .calendar-day.today {
-      border: 1px solid var(--primary-color);
-      color: var(--primary-color);
-    }
-    .calendar-day.selected {
-      background-color: var(--primary-color);
-      color: white;
-    }
-    .calendar-day.other-month {
-      color: #aaa;
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
     }
     .day-header {
       text-align: center;
+      font-weight: 600;
       font-size: 0.75rem;
-      font-weight: 500;
-      color: #666;
+      color: #6b7280;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .calendar-day {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 32px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-radius: 0.25rem;
+      transition: all 0.15s ease;
+    }
+    .calendar-day:hover:not(.past):not([disabled]) {
+      background-color: #f3f4f6;
+    }
+    .calendar-day.selected {
+      background-color: ${primaryColor};
+      color: white;
+      font-weight: 600;
+    }
+    .calendar-day.today {
+      font-weight: 600;
+      position: relative;
+    }
+    .calendar-day.today:after {
+      content: "";
+      position: absolute;
+      bottom: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background-color: ${primaryColor};
+    }
+    .calendar-day.today.selected:after {
+      background-color: white;
+    }
+    .calendar-day.other-month {
+      color: #9ca3af;
+    }
+    .selected-date {
+      margin: 0.75rem 0;
+      font-size: 0.875rem;
+      color: #4b5563;
     }
     .time-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
       gap: 0.5rem;
-      margin-top: 0.5rem;
+      margin-top: 1rem;
     }
     .time-button {
+      display: flex;
+      justify-content: center;
+      align-items: center;
       padding: 0.5rem;
-      border: 1px solid var(--border-color);
-      border-radius: 0.25rem;
-      background: white;
-      cursor: pointer;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.375rem;
+      background-color: white;
       font-size: 0.875rem;
-      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
     }
-    .time-button:hover {
-      border-color: var(--primary-color);
+    .time-button:hover:not([disabled]) {
+      background-color: #f3f4f6;
     }
     .time-button.selected {
-      background-color: var(--primary-color);
+      background-color: ${primaryColor};
+      border-color: ${primaryColor};
       color: white;
-      border-color: var(--primary-color);
     }
-    .form-group {
-      margin-bottom: 1rem;
-    }
-    .form-label {
-      display: block;
-      font-size: 0.875rem;
-      font-weight: 500;
-      margin-bottom: 0.25rem;
-    }
-    .form-input {
+    .book-button {
+      margin-top: 1.5rem;
+      padding: 0.75rem 1rem;
       width: 100%;
-      padding: 0.5rem;
-      border: 1px solid var(--border-color);
-      border-radius: 0.25rem;
-      font-size: 0.875rem;
-    }
-    .form-button {
-      width: 100%;
-      padding: 0.75rem;
-      background-color: var(--primary-color);
+      background-color: ${primaryColor};
       color: white;
       border: none;
-      border-radius: 0.25rem;
-      font-weight: 500;
+      border-radius: 0.375rem;
+      font-weight: 600;
       cursor: pointer;
+      transition: all 0.15s ease;
     }
-    .form-button:hover {
+    .book-button:hover:not([disabled]) {
       opacity: 0.9;
     }
-    .helper-text {
-      font-size: 0.75rem;
-      color: #666;
-      margin-top: 0.25rem;
-      text-align: center;
+    .book-button:disabled {
+      background-color: #9ca3af;
+      cursor: not-allowed;
     }
     .empty-message {
       text-align: center;
-      padding: 2rem 0;
-      color: #666;
+      color: #6b7280;
+      padding: 1.5rem;
       font-size: 0.875rem;
+    }
+    .loading-spinner {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+      color: #6b7280;
+      font-size: 0.875rem;
+    }
+    .loading-spinner:before {
+      content: "";
+      width: 20px;
+      height: 20px;
+      margin-right: 0.5rem;
+      border: 2px solid #e5e7eb;
+      border-top-color: ${primaryColor};
+      border-radius: 50%;
+      animation: spinner 0.6s linear infinite;
+    }
+    @keyframes spinner {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    .calendar-day.past {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: #ccc;
+      background-color: #f9f9f9;
+    }
+    .calendar-day.past:hover {
+      background-color: #f9f9f9;
+    }
+    .calendar-day.past.today {
+      opacity: 0.7;
+      background-color: #f9f9f9;
+    }
+    .calendar-day.past.today:after {
+      background-color: #9ca3af;
     }
   `;
   
-  // Build the time slots HTML based on fetched availability
-  let timeSlotsHtml = '';
-  
-  if (availableTimeSlots.length === 0) {
-    timeSlotsHtml = `
-      <div class="empty-message">
-        No available slots for this date.
-      </div>
-    `;
-  } else {
-    let timeButtonsHtml = '';
-    availableTimeSlots.forEach((slot, index) => {
-      const isSelected = index === 0; // Default select first time slot
-      timeButtonsHtml += `
-        <div class="time-button${isSelected ? ' selected' : ''}" data-time="${slot.time}">
-          ${slot.formatted}
-        </div>
-      `;
-    });
-    
-    timeSlotsHtml = `
-      <div class="time-grid">
-        ${timeButtonsHtml}
-      </div>
-    `;
-  }
-  
-  // JavaScript for the widget functionality
+  // Update JavaScript for date handling
   const scriptCode = `
-    // Get therapist ID from URL 
-    const urlParams = new URLSearchParams(window.location.search);
-    const therapistId = urlParams.get('therapistId');
+    let currentMonth = new Date(${selectedDate.getFullYear()}, ${selectedDate.getMonth()}, 1);
+    let selectedDate = new Date(${selectedDate.getFullYear()}, ${selectedDate.getMonth()}, ${selectedDate.getDate()});
+    let selectedTimeSlot = null;
     
-    // Function to fetch available time slots for a given date
+    // Format date for display
+    function formatDateDisplay(date) {
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      return date.toLocaleDateString('en-US', options);
+    }
+    
+    // Fetch available time slots for the selected date
     async function fetchAvailableTimeSlots(date) {
-      if (!therapistId) return;
+      const dateStr = date.toISOString().split('T')[0];
+      document.getElementById('selected-date-display').textContent = formatDateDisplay(date);
+      document.getElementById('selected-time-display').textContent = 'No time selected';
+      selectedTimeSlot = null;
       
-      try {
-        // Show loading indicator
-        const timeSlotsContainer = document.querySelector('.card:nth-child(2) .time-grid') || 
-                                   document.querySelector('.card:nth-child(2) .empty-message');
+      // Disable book button until a time is selected
+      const bookButton = document.getElementById('book-button');
+      if (bookButton) {
+        bookButton.disabled = true;
+      }
+      
+      const timeSlotsContainer = document.querySelector('.time-grid');
+      
+      if (timeSlotsContainer) {
+        timeSlotsContainer.innerHTML = '<div class="loading-spinner">Loading available times...</div>';
         
-        if (timeSlotsContainer) {
-          timeSlotsContainer.innerHTML = '<div class="empty-message">Loading available times...</div>';
-        }
-        
-        // Format date for API request
-        const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD
-        
-        // Create URL with date and therapist ID
-        const apiUrl = new URL(window.location.href);
-        apiUrl.searchParams.set('date', formattedDate);
-        
-        // Fetch from our own API
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch time slots');
-        }
-        
-        // Get the HTML response
-        const html = await response.text();
-        
-        // Create a temporary element to parse the HTML
-        const tempElement = document.createElement('div');
-        tempElement.innerHTML = html;
-        
-        // Extract the time slots HTML
-        const newTimeSlotsContainer = tempElement.querySelector('.card:nth-child(2) .time-grid') || 
-                                      tempElement.querySelector('.card:nth-child(2) .empty-message');
-        
-        // Update the date display
-        const dateDisplay = document.getElementById('selected-date-display');
-        if (dateDisplay) {
-          const newDateDisplay = tempElement.querySelector('#selected-date-display');
-          if (newDateDisplay) {
-            dateDisplay.textContent = newDateDisplay.textContent;
-          }
-        }
-        
-        // Replace the time slots in the current page
-        if (newTimeSlotsContainer && timeSlotsContainer) {
-          timeSlotsContainer.parentNode.replaceChild(newTimeSlotsContainer, timeSlotsContainer);
+        try {
+          // Get therapist ID from URL params
+          const urlParams = new URLSearchParams(window.location.search);
+          const therapistId = urlParams.get('therapistId');
           
-          // Reattach event listeners to new time buttons
-          attachTimeButtonListeners();
-        }
-      } catch (error) {
-        console.error('Error fetching time slots:', error);
-        const timeSlotsContainer = document.querySelector('.card:nth-child(2) .time-grid') || 
-                                   document.querySelector('.card:nth-child(2) .empty-message');
-        
-        if (timeSlotsContainer) {
-          timeSlotsContainer.innerHTML = '<div class="empty-message">Error loading available times. Please try again.</div>';
+          // Fetch available slots from server
+          const response = await fetch(\`/api/widget-preview/get-slots?therapistId=\${therapistId}&date=\${dateStr}\`);
+          
+          if (!response.ok) {
+            throw new Error(\`HTTP error! status: \${response.status}\`);
+          }
+          
+          const data = await response.json();
+          console.log('Fetched slots:', data);
+          
+          if (data.slots && data.slots.length > 0) {
+            // Display time slots
+            timeSlotsContainer.innerHTML = '';
+            data.slots.forEach(slot => {
+              const timeButton = document.createElement('button');
+              timeButton.className = 'time-button';
+              timeButton.textContent = slot.displayTime;
+              timeButton.setAttribute('data-time', slot.time);
+              
+              timeButton.addEventListener('click', function() {
+                document.querySelectorAll('.time-button').forEach(btn => btn.classList.remove('selected'));
+                this.classList.add('selected');
+                selectedTimeSlot = slot;
+                
+                // Update selected time display
+                const selectedTimeDisplay = document.getElementById('selected-time-display');
+                if (selectedTimeDisplay) {
+                  selectedTimeDisplay.textContent = this.textContent;
+                }
+                
+                // Enable the book button
+                const bookButton = document.getElementById('book-button');
+                if (bookButton) {
+                  bookButton.disabled = false;
+                }
+              });
+              
+              timeSlotsContainer.appendChild(timeButton);
+            });
+          } else {
+            // No available slots
+            timeSlotsContainer.innerHTML = '<div class="empty-message">No available times for this date. Please select another day.</div>';
+          }
+        } catch (error) {
+          console.error('Error fetching time slots:', error);
+          timeSlotsContainer.innerHTML = \`<div class="empty-message">Error loading time slots: \${error.message}</div>\`;
         }
       }
+    }
+    
+    // Update calendar for new month
+    function updateCalendar(month) {
+      // Format month year display
+      document.getElementById('current-month').textContent = 
+        month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      
+      // Fetch new calendar data
+      fetch(\`/api/widget-preview?therapistId=\${new URLSearchParams(window.location.search).get('therapistId')}&date=\${month.toISOString()}\`)
+        .then(response => response.text())
+        .then(html => {
+          // Create a temporary element to parse the HTML
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = html;
+          
+          // Extract just the calendar part
+          const newCalendar = tempDiv.querySelector('.calendar');
+          if (newCalendar) {
+            document.querySelector('.calendar').innerHTML = newCalendar.innerHTML;
+            attachCalendarListeners();
+          }
+        })
+        .catch(error => {
+          console.error('Error updating calendar:', error);
+        });
     }
     
     // Attach event listeners to calendar days
     function attachCalendarListeners() {
       document.querySelectorAll('.calendar-day').forEach(day => {
+        // Skip past days
+        if (day.classList.contains('past') || day.hasAttribute('disabled')) {
+          return;
+        }
+        
         day.addEventListener('click', () => {
           document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('selected'));
           day.classList.add('selected');
           
-          // Extract date from the calendar and create a Date object
-          const dayText = day.textContent || '';
-          const monthYearText = document.getElementById('current-month').textContent || '';
-          if (dayText && monthYearText && !day.classList.contains('other-month')) {
-            const monthYearParts = monthYearText.split(' ');
-            const month = monthYearParts[0];
-            const year = monthYearParts[1];
-            const dateStr = month + ' ' + dayText + ', ' + year;
-            const date = new Date(dateStr);
-            
-            // Fetch available times for this date
-            fetchAvailableTimeSlots(date);
+          const dateStr = day.getAttribute('data-date');
+          if (dateStr) {
+            selectedDate = new Date(dateStr);
+            fetchAvailableTimeSlots(selectedDate);
           } else {
-            // For other month days, just show a message
+            // For other month days or invalid dates, show a message
             const dateText = day.classList.contains('other-month') 
               ? 'Date in another month' 
               : 'Unknown date';
@@ -386,7 +479,7 @@ export async function GET(request: NextRequest) {
             document.getElementById('selected-date-display').textContent = dateText;
             
             const timeSlotsContainer = document.querySelector('.card:nth-child(2) .time-grid') || 
-                                       document.querySelector('.card:nth-child(2) .empty-message');
+                                      document.querySelector('.card:nth-child(2) .empty-message');
             
             if (timeSlotsContainer) {
               timeSlotsContainer.innerHTML = '<div class="empty-message">Please select a date from the current month.</div>';
@@ -396,43 +489,68 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Attach event listeners to time buttons
-    function attachTimeButtonListeners() {
-      document.querySelectorAll('.time-button').forEach(button => {
-        if (!button.id) { // Skip month navigation buttons
-          button.addEventListener('click', () => {
-            document.querySelectorAll('.time-button').forEach(b => {
-              if (!b.id) b.classList.remove('selected');
-            });
-            button.classList.add('selected');
-          });
-        }
-      });
-    }
+    // Add event listeners for month navigation
+    document.getElementById('prev-month').addEventListener('click', () => {
+      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+      updateCalendar(currentMonth);
+    });
     
-    // Attach navigation button listeners
-    function attachNavigationListeners() {
-      document.getElementById('prev-month').addEventListener('click', () => {
-        alert('This calendar navigation is just a preview. In the actual widget, this would navigate to the previous month.');
-      });
+    document.getElementById('next-month').addEventListener('click', () => {
+      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+      updateCalendar(currentMonth);
+    });
+    
+    // Book appointment button handler
+    document.getElementById('book-button').addEventListener('click', () => {
+      const selectedTimeBtn = document.querySelector('.time-button.selected');
+      if (!selectedTimeBtn) {
+        alert('Please select a time slot');
+        return;
+      }
       
-      document.getElementById('next-month').addEventListener('click', () => {
-        alert('This calendar navigation is just a preview. In the actual widget, this would navigate to the next month.');
+      const time = selectedTimeBtn.getAttribute('data-time');
+      const date = selectedDate.toISOString().split('T')[0];
+      
+      // In a real implementation, this would submit to your booking API
+      alert(\`Booking for \${date} at \${selectedTimeBtn.textContent}\`);
+      
+      // Mock API call - in a real application you would post to your booking endpoint
+      console.log('Booking appointment:', {
+        therapistId: new URLSearchParams(window.location.search).get('therapistId'),
+        date: date,
+        time: time
       });
-    }
+    });
     
-    // Initialize all event listeners
-    function initListeners() {
+    // Initialize the page
+    document.addEventListener('DOMContentLoaded', () => {
       attachCalendarListeners();
-      attachTimeButtonListeners();
-      attachNavigationListeners();
-    }
-    
-    // Run initializer when DOM is loaded
-    document.addEventListener('DOMContentLoaded', initListeners);
+      
+      // Initialize with selected date
+      const selectedDay = document.querySelector('.calendar-day.selected');
+      if (selectedDay) {
+        const dateStr = selectedDay.getAttribute('data-date');
+        if (dateStr) {
+          fetchAvailableTimeSlots(new Date(dateStr));
+        }
+      } else {
+        // If no day is selected, select today if available, otherwise the first non-past day
+        const today = document.querySelector('.calendar-day.today');
+        if (today && !today.classList.contains('past') && !today.hasAttribute('disabled')) {
+          today.click();
+        } else {
+          const firstAvailableDay = Array.from(document.querySelectorAll('.calendar-day'))
+            .find(day => !day.classList.contains('past') && !day.hasAttribute('disabled') && day.classList.contains('other-month') === false);
+          
+          if (firstAvailableDay) {
+            firstAvailableDay.click();
+          }
+        }
+      }
+    });
   `;
   
-  // Simple booking widget HTML with dynamic content
+  // Update the calendar HTML in your template
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -444,7 +562,7 @@ export async function GET(request: NextRequest) {
       </head>
       <body>
         <div class="container">
-          <h1 class="heading">Book an Appointment${therapistData ? ' with ' + therapistData.name : ''}</h1>
+          <h1 class="heading">${modalTitle}${therapistData ? ' with ' + therapistData.name : ''}</h1>
           
           <div class="grid">
             <div class="card">
@@ -460,48 +578,17 @@ export async function GET(request: NextRequest) {
               
               <div class="calendar-header">
                 <button class="time-button" style="width: auto; padding: 0.25rem 0.5rem;" id="prev-month">&larr;</button>
-                <div id="current-month">${format(selectedDate, 'MMMM yyyy')}</div>
+                <div id="current-month">${format(currentMonth, 'MMMM yyyy')}</div>
                 <button class="time-button" style="width: auto; padding: 0.25rem 0.5rem;" id="next-month">&rarr;</button>
               </div>
               
               <div class="calendar">
-                <div class="day-header">Su</div>
-                <div class="day-header">Mo</div>
-                <div class="day-header">Tu</div>
-                <div class="day-header">We</div>
-                <div class="day-header">Th</div>
-                <div class="day-header">Fr</div>
-                <div class="day-header">Sa</div>
-                
-                <!-- Example calendar days - in production this would be dynamically generated -->
-                <div class="calendar-day other-month">26</div>
-                <div class="calendar-day other-month">27</div>
-                <div class="calendar-day other-month">28</div>
-                <div class="calendar-day other-month">29</div>
-                <div class="calendar-day">1</div>
-                <div class="calendar-day">2</div>
-                <div class="calendar-day">3</div>
-                <div class="calendar-day">4</div>
-                <div class="calendar-day">5</div>
-                <div class="calendar-day">6</div>
-                <div class="calendar-day">7</div>
-                <div class="calendar-day">8</div>
-                <div class="calendar-day">9</div>
-                <div class="calendar-day">10</div>
-                <div class="calendar-day">11</div>
-                <div class="calendar-day">12</div>
-                <div class="calendar-day">13</div>
-                <div class="calendar-day">14</div>
-                <div class="calendar-day">15</div>
-                <div class="calendar-day">16</div>
-                <div class="calendar-day">17</div>
-                <div class="calendar-day today">18</div>
-                <div class="calendar-day selected">19</div>
-                <div class="calendar-day">20</div>
-                <div class="calendar-day">21</div>
-                <div class="calendar-day">22</div>
-                <div class="calendar-day">23</div>
-                <div class="calendar-day">24</div>
+                ${dayHeaders}
+                ${calendarHtml}
+              </div>
+              
+              <div class="selected-date">
+                Selected: <span id="selected-date-display">${format(selectedDate, 'EEEE, MMMM d, yyyy')}</span>
               </div>
             </div>
             
@@ -511,34 +598,18 @@ export async function GET(request: NextRequest) {
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
-                Available Times
-              </div>
-              <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.75rem" id="selected-date-display">
-                ${displayDate}
+                Select a Time
               </div>
               
-              ${timeSlotsHtml}
-            </div>
-          </div>
-          
-          <div class="card">
-            <div class="section-title">Your Information</div>
-            
-            <div class="grid">
-              <div class="form-group">
-                <label class="form-label">Full Name</label>
-                <input type="text" class="form-input" placeholder="Your name">
+              <div class="selected-date">
+                Selected: <span id="selected-time-display">No time selected</span>
               </div>
               
-              <div class="form-group">
-                <label class="form-label">Email</label>
-                <input type="email" class="form-input" placeholder="your@email.com">
+              <div class="time-grid">
+                ${initialTimeSlots}
               </div>
-            </div>
-            
-            <button class="form-button">${buttonText}</button>
-            <div class="helper-text">
-              This is a preview. No actual appointment will be booked.
+              
+              <button id="book-button" class="book-button" disabled>${buttonText}</button>
             </div>
           </div>
         </div>
@@ -547,7 +618,7 @@ export async function GET(request: NextRequest) {
       </body>
     </html>
   `;
-  
+
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html',
