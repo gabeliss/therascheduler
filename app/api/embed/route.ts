@@ -99,8 +99,39 @@ export async function GET(request: Request) {
       therapistId: therapistId,
       primaryColor: primaryColor,
       buttonText: buttonText,
-      modalTitle: modalTitle
+      modalTitle: modalTitle,
+      embedded: 'true'
     }).toString();
+    
+    // Add global functions to control the widget
+    window.openTheraScheduler = function() {
+      modal.style.display = "block";
+      document.body.style.overflow = "hidden";
+    };
+    
+    window.closeTheraScheduler = function() {
+      modal.style.display = "none";
+      document.body.style.overflow = "auto";
+    };
+    
+    // Function to update iframe when a date is selected
+    window.updateTheraSchedulerDate = function(date) {
+      if (!date) return;
+      
+      try {
+        // Format date to YYYY-MM-DD
+        const formattedDate = date instanceof Date 
+          ? date.toISOString().split('T')[0]
+          : new Date(date).toISOString().split('T')[0];
+        
+        // Update iframe URL with the new date
+        const currentUrl = new URL(iframe.src);
+        currentUrl.searchParams.set('date', formattedDate);
+        iframe.src = currentUrl.toString();
+      } catch (err) {
+        console.error('Error updating TheraScheduler date:', err);
+      }
+    };
     
     // Assemble modal
     modalContent.appendChild(closeButton);
