@@ -32,7 +32,7 @@ export default function WidgetCodePage() {
       
       try {
         const { data, error } = await supabase
-          .from('therapist_profiles')
+          .from('therapists')
           .select('id')
           .eq('user_id', user.id)
           .single();

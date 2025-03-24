@@ -52,7 +52,7 @@ function generateCalendarGrid(selectedDate: Date, currentMonth: Date) {
         isCurrentMonth: isSameMonth(day, monthStart),
         isToday: isToday(day),
         isSelected: isSameDay(day, selectedDate),
-        isPast: isPast(day) && !isToday(day),
+        isPast: isPast(day) || isToday(day),
         dayOfWeek: getDay(day),
       };
       
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
   
   // Fetch therapist info with admin client to bypass RLS
   const { data: therapistData, error: therapistError } = await supabaseAdmin
-    .from('therapist_profiles')
+    .from('therapists')
     .select('id, name')
     .eq('id', therapistId)
     .single();
@@ -226,8 +226,14 @@ export async function GET(request: NextRequest) {
       font-weight: 600;
     }
     .calendar-day.today {
-      font-weight: 600;
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: #ccc;
+      background-color: #f9f9f9;
       position: relative;
+    }
+    .calendar-day.today:hover {
+      background-color: #f9f9f9;
     }
     .calendar-day.today:after {
       content: "";
@@ -238,7 +244,7 @@ export async function GET(request: NextRequest) {
       width: 4px;
       height: 4px;
       border-radius: 50%;
-      background-color: ${primaryColor};
+      background-color: #9ca3af;
     }
     .calendar-day.today.selected:after {
       background-color: white;
@@ -351,8 +357,15 @@ export async function GET(request: NextRequest) {
     
     // Format date for display
     function formatDateDisplay(date) {
-      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-      return date.toLocaleDateString('en-US', options);
+      // Using toDateString to ensure consistent date display across browsers
+      // This prevents timezone issues that can cause the date to appear off by one day
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        timeZone: 'UTC' // Using UTC timezone to avoid date shifting
+      });
     }
     
     // Fetch available time slots for the selected date
@@ -457,8 +470,8 @@ export async function GET(request: NextRequest) {
     // Attach event listeners to calendar days
     function attachCalendarListeners() {
       document.querySelectorAll('.calendar-day').forEach(day => {
-        // Skip past days
-        if (day.classList.contains('past') || day.hasAttribute('disabled')) {
+        // Skip past days and today
+        if (day.classList.contains('past') || day.classList.contains('today') || day.hasAttribute('disabled')) {
           return;
         }
         
@@ -534,17 +547,15 @@ export async function GET(request: NextRequest) {
           fetchAvailableTimeSlots(new Date(dateStr));
         }
       } else {
-        // If no day is selected, select today if available, otherwise the first non-past day
-        const today = document.querySelector('.calendar-day.today');
-        if (today && !today.classList.contains('past') && !today.hasAttribute('disabled')) {
-          today.click();
-        } else {
-          const firstAvailableDay = Array.from(document.querySelectorAll('.calendar-day'))
-            .find(day => !day.classList.contains('past') && !day.hasAttribute('disabled') && day.classList.contains('other-month') === false);
-          
-          if (firstAvailableDay) {
-            firstAvailableDay.click();
-          }
+        // Always look for the first non-past, non-today day
+        const firstAvailableDay = Array.from(document.querySelectorAll('.calendar-day'))
+          .find(day => !day.classList.contains('past') && 
+                       !day.classList.contains('today') && 
+                       !day.hasAttribute('disabled') && 
+                       day.classList.contains('other-month') === false);
+        
+        if (firstAvailableDay) {
+          firstAvailableDay.click();
         }
       }
     });

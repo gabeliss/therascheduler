@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { format, addMinutes, parse } from 'date-fns';
+import { format, addMinutes, parse, getDay } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,13 +14,14 @@ import { Loader2, Calendar as CalendarIcon, Clock } from 'lucide-react';
 import { useAuth } from '@/app/context/auth-context';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
-interface AvailableSlot {
+interface AvailabilitySlot {
   id: string;
   therapist_id: string;
   start_time: string;
   end_time: string;
-  day_of_week: number;
+  recurrence: string | null;
 }
 
 interface TherapistInfo {
@@ -44,7 +45,7 @@ export default function BookAppointmentPage() {
   const therapistId = searchParams.get('therapist');
   
   const [date, setDate] = useState<Date | undefined>(new Date());
-  const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<AvailabilitySlot[]>([]);
   const [timeSlots, setTimeSlots] = useState<{time: string, formatted: string}[]>([]);
   const [loading, setLoading] = useState(false);
   const [therapistLoading, setTherapistLoading] = useState(true);
@@ -121,31 +122,40 @@ export default function BookAppointmentPage() {
     setSelectedTime(null);
     
     try {
-      const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+      const dayOfWeek = date.getDay() as DayOfWeek; // 0 = Sunday, 6 = Saturday
       const formattedDate = format(date, 'yyyy-MM-dd');
       
-      // Fetch recurring availability for the day of week
-      const { data: recurringData, error: recurringError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('day_of_week', dayOfWeek)
-        .eq('is_recurring', true)
+      // Fetch all availability for this therapist
+      const { data: availabilityData, error: availabilityError } = await supabase
+        .from('availability')
+        .select('id, therapist_id, start_time, end_time, recurrence')
         .eq('therapist_id', therapist.id);
       
-      if (recurringError) throw recurringError;
+      if (availabilityError) throw availabilityError;
       
-      // Fetch specific availability for the selected date
-      const { data: specificData, error: specificError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('specific_date', formattedDate)
-        .eq('is_recurring', false)
-        .eq('therapist_id', therapist.id);
+      // Filter the results client-side
+      let allSlots: AvailabilitySlot[] = [];
       
-      if (specificError) throw specificError;
+      if (availabilityData) {
+        // Filter recurring availability for this day of week
+        const recurringSlots = availabilityData.filter(slot => {
+          if (!slot.recurrence) return false;
+          const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+          return daysOfWeek.includes(dayOfWeek);
+        });
+        
+        // Filter specific date availability
+        const specificSlots = availabilityData.filter(slot => {
+          if (slot.recurrence) return false;
+          // Extract the date from the start_time ISO string
+          const slotDate = new Date(slot.start_time);
+          const slotDateStr = format(slotDate, 'yyyy-MM-dd');
+          return slotDateStr === formattedDate;
+        });
+        
+        allSlots = [...recurringSlots, ...specificSlots];
+      }
       
-      // Combine both types of availability
-      const allSlots = [...(recurringData || []), ...(specificData || [])];
       setAvailableSlots(allSlots);
       
       // Generate time slots from availability
@@ -162,15 +172,39 @@ export default function BookAppointmentPage() {
   };
 
   // Generate 30-minute time slots from availability ranges
-  const generateTimeSlots = (slots: AvailableSlot[], dateStr: string) => {
+  const generateTimeSlots = (slots: AvailabilitySlot[], dateStr: string) => {
     const timeSlots: {time: string, formatted: string}[] = [];
     
     slots.forEach(slot => {
-      const startTime = parse(slot.start_time, 'HH:mm:ss', new Date());
-      const endTime = parse(slot.end_time, 'HH:mm:ss', new Date());
+      // Extract the time part from ISO timestamps for recurring slots
+      // or use the actual timestamps for specific date slots
+      let startDateTime, endDateTime;
       
-      let currentTime = startTime;
-      while (currentTime < endTime) {
+      if (slot.recurrence) {
+        // For recurring slots, combine the selected date with the time from start_time
+        const startTime = new Date(slot.start_time);
+        const endTime = new Date(slot.end_time);
+        
+        // Extract just the time components
+        const startHours = startTime.getHours();
+        const startMinutes = startTime.getMinutes();
+        const endHours = endTime.getHours();
+        const endMinutes = endTime.getMinutes();
+        
+        // Create new dates using the selected date and extracted times
+        startDateTime = new Date(dateStr);
+        startDateTime.setHours(startHours, startMinutes, 0, 0);
+        
+        endDateTime = new Date(dateStr);
+        endDateTime.setHours(endHours, endMinutes, 0, 0);
+      } else {
+        // For specific date slots, use the timestamps directly
+        startDateTime = new Date(slot.start_time);
+        endDateTime = new Date(slot.end_time);
+      }
+      
+      let currentTime = startDateTime;
+      while (currentTime < endDateTime) {
         const timeStr = format(currentTime, 'HH:mm');
         timeSlots.push({
           time: timeStr,

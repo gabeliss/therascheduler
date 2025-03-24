@@ -1,6 +1,28 @@
 import { format } from 'date-fns';
 import { TimeBlock } from './types';
 import { timeToMinutes, minutesToTimeString } from './calculations';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+
+/**
+ * Helper to determine if a time-off is all-day based on timestamps
+ */
+function isAllDayTimeOff(startTime: string, endTime: string): boolean {
+  try {
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+    
+    const startHours = startDate.getHours();
+    const startMinutes = startDate.getMinutes();
+    const endHours = endDate.getHours();
+    const endMinutes = endDate.getMinutes();
+    
+    // Consider it all-day if it starts at/before 00:10 and ends at/after 23:50
+    return (startHours === 0 && startMinutes <= 10) && 
+           (endHours === 23 && endMinutes >= 50);
+  } catch (error) {
+    return false;
+  }
+}
 
 /**
  * Resolves conflicts between appointments and time off blocks
@@ -145,12 +167,10 @@ function appointmentToTimeBlock(appointment: any): TimeBlock {
     id: appointment.id,
     start_time: startTimeStr,
     end_time: endTimeStr,
-    is_recurring: false,
+    recurrence: null,
     type: 'appointment' as const,
     reason: appointment.notes,
     original: appointment,
-    start_date: format(new Date(appointment.start_time), 'yyyy-MM-dd'),
-    end_date: format(new Date(appointment.end_time), 'yyyy-MM-dd'),
     client_name: clientName,
     status: appointment.status,
     overrides_time_off: appointment.overrides_time_off || true
@@ -161,38 +181,45 @@ function appointmentToTimeBlock(appointment: any): TimeBlock {
  * Processes all-day time off blocks for a specific date
  */
 function processAllDayTimeOffBlocks(
-  exceptionSlots: any[],
+  timeOffPeriods: any[],
   date: Date,
-  processedExceptionIds: Set<string>
+  processedTimeOffIds: Set<string>
 ): TimeBlock[] {
   const allDayTimeOffBlocks: TimeBlock[] = [];
   const currentDateStr = format(date, 'yyyy-MM-dd');
   
-  // Find all all-day time off blocks for this date
-  const allDayExceptions = exceptionSlots.filter(ex => 
-    ex.is_all_day && 
-    ((ex.start_date && ex.end_date && 
-      currentDateStr >= ex.start_date && 
-      currentDateStr <= ex.end_date) ||
-     ((ex as any).specific_date === currentDateStr))
-  );
+  // Find all-day time off blocks for this date
+  const allDayTimeOff = timeOffPeriods.filter(timeOff => {
+    // Check if this time-off period covers the full day (00:00 to 23:59)
+    const startTime = new Date(timeOff.start_time);
+    const endTime = new Date(timeOff.end_time);
+    
+    // Extract dates
+    const startDateStr = format(startTime, 'yyyy-MM-dd');
+    const endDateStr = format(endTime, 'yyyy-MM-dd');
+    
+    // Check if this is an all-day time-off by examining the time part
+    const isFullDay = isAllDayTimeOff(timeOff.start_time, timeOff.end_time);
+    
+    // Check if this day falls within the time-off period
+    const isInRange = currentDateStr >= startDateStr && currentDateStr <= endDateStr;
+    
+    return isFullDay && isInRange;
+  });
   
-  // Convert all-day exceptions to TimeBlocks
-  allDayTimeOffBlocks.push(...allDayExceptions.map(ex => {
-    // Mark this exception as processed
-    processedExceptionIds.add(ex.id);
+  // Convert all-day time-off periods to TimeBlocks
+  allDayTimeOffBlocks.push(...allDayTimeOff.map(timeOff => {
+    // Mark this time-off period as processed
+    processedTimeOffIds.add(timeOff.id);
     
     return {
-      id: `${ex.id}-${currentDateStr}`, // Make ID unique for each day
-      start_time: ex.start_time || '00:00:00',
-      end_time: ex.end_time || '23:59:59',
-      is_recurring: false, // Treat as non-recurring for this day
+      id: `${timeOff.id}-${currentDateStr}`, // Make ID unique for each day
+      start_time: '00:00:00',
+      end_time: '23:59:59',
+      recurrence: timeOff.recurrence,
       type: 'time-off' as const,
-      reason: ex.reason,
-      original: ex,
-      is_all_day: true,
-      start_date: ex.start_date,
-      end_date: ex.end_date
+      reason: timeOff.reason,
+      original: timeOff
     };
   }));
   
@@ -217,10 +244,9 @@ function availabilityToTimeBlocks(availabilitySlots: any[]): TimeBlock[] {
     id: slot.id,
     start_time: slot.start_time,
     end_time: slot.end_time,
-    is_recurring: slot.is_recurring,
+    recurrence: slot.recurrence,
     type: 'availability' as const,
-    original: slot,
-    is_all_day: slot.is_all_day
+    original: slot
   }));
 }
 
@@ -306,8 +332,8 @@ function processTimeOffExceptions(
   // Sort exceptions by priority (non-recurring first, then by start time)
   const sortedExceptions = [...exceptionSlots].sort((a, b) => {
     // Non-recurring exceptions take precedence
-    if (a.is_recurring !== b.is_recurring) {
-      return a.is_recurring ? 1 : -1;
+    if ((a.recurrence !== null) !== (b.recurrence !== null)) {
+      return a.recurrence !== null ? 1 : -1;
     }
     // If both are the same type, sort by start time
     return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
@@ -347,13 +373,10 @@ function processTimeOffExceptions(
             id: `${ex.id}-split-before-${appt.id}`,
             start_time: minutesToTimeString(currentStartMinutes),
             end_time: minutesToTimeString(apptStartMinutes),
-            is_recurring: ex.is_recurring,
+            recurrence: ex.recurrence,
             type: 'time-off' as const,
             reason: ex.reason,
-            original: ex,
-            is_all_day: ex.is_all_day,
-            start_date: ex.start_date,
-            end_date: ex.end_date
+            original: ex
           });
         }
         
@@ -367,13 +390,10 @@ function processTimeOffExceptions(
           id: `${ex.id}-split-after`,
           start_time: minutesToTimeString(currentStartMinutes),
           end_time: minutesToTimeString(exEndMinutes),
-          is_recurring: ex.is_recurring,
+          recurrence: ex.recurrence,
           type: 'time-off' as const,
           reason: ex.reason,
-          original: ex,
-          is_all_day: ex.is_all_day,
-          start_date: ex.start_date,
-          end_date: ex.end_date
+          original: ex
         });
       }
     } else {
@@ -391,19 +411,16 @@ function processTimeOffExceptions(
           id: ex.id,
           start_time: ex.start_time,
           end_time: ex.end_time,
-          is_recurring: ex.is_recurring,
+          recurrence: ex.recurrence,
           type: 'time-off' as const,
           reason: ex.reason,
-          original: ex,
-          is_all_day: ex.is_all_day,
-          start_date: ex.start_date,
-          end_date: ex.end_date
+          original: ex
         });
         continue;
       }
       
       // Handle overlaps for recurring exceptions
-      if (ex.is_recurring) {
+      if (ex.recurrence) {
         // Check if it's completely covered by any one-time exception
         const completelyOverlapped = overlappingBlocks.some(block => {
           const blockStartMinutes = timeToMinutes(block.start_time);
@@ -456,13 +473,10 @@ function processTimeOffExceptions(
             id: `${ex.id}-split-${index}`,
             start_time: minutesToTimeString(segment.start),
             end_time: minutesToTimeString(segment.end),
-            is_recurring: true,
+            recurrence: ex.recurrence,
             type: 'time-off' as const,
             reason: ex.reason,
-            original: ex,
-            is_all_day: ex.is_all_day,
-            start_date: ex.start_date,
-            end_date: ex.end_date
+            original: ex
           });
         });
       } else {
@@ -472,13 +486,10 @@ function processTimeOffExceptions(
           id: ex.id,
           start_time: ex.start_time,
           end_time: ex.end_time,
-          is_recurring: ex.is_recurring,
+          recurrence: ex.recurrence,
           type: 'time-off' as const,
           reason: ex.reason,
-          original: ex,
-          is_all_day: ex.is_all_day,
-          start_date: ex.start_date,
-          end_date: ex.end_date
+          original: ex
         });
       }
     }

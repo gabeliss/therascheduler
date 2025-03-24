@@ -11,6 +11,7 @@ import { AlertCircle, Calendar as CalendarIcon, Clock, Loader2, ChevronLeft, Che
 import { format, addMonths, subMonths, addMinutes, parse, isSameMonth, isSameDay, isToday, startOfMonth, startOfWeek, endOfMonth, endOfWeek, eachDayOfInterval, addDays } from 'date-fns';
 import { supabase } from '@/app/utils/supabase';
 import { cn } from '@/lib/utils';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
 // Add global interface for window object
 declare global {
@@ -25,7 +26,7 @@ interface AvailableSlot {
   therapist_id: string;
   start_time: string;
   end_time: string;
-  day_of_week: number;
+  recurrence: string | null;
 }
 
 interface TherapistInfo {
@@ -132,7 +133,7 @@ export default function WidgetPreviewPage() {
   async function fetchTherapistInfo(id: string) {
     try {
       const { data, error } = await supabase
-        .from('therapist_profiles')
+        .from('therapists')
         .select('id, name, email')
         .eq('id', id)
         .single();
@@ -160,32 +161,31 @@ export default function WidgetPreviewPage() {
       const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
       const formattedDate = format(selectedDate, 'yyyy-MM-dd');
       
-      // Fetch recurring availability for the day of week
-      const { data: recurringData, error: recurringError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('day_of_week', dayOfWeek)
-        .eq('is_recurring', true)
+      // Fetch all availability for this therapist
+      const { data: availabilityData, error: availabilityError } = await supabase
+        .from('availability')
+        .select('id, therapist_id, start_time, end_time, recurrence')
         .eq('therapist_id', therapistId);
       
-      if (recurringError) throw recurringError;
+      if (availabilityError) throw availabilityError;
       
-      // Fetch specific availability for the selected date
-      const { data: specificData, error: specificError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('specific_date', formattedDate)
-        .eq('is_recurring', false)
-        .eq('therapist_id', therapistId);
-      
-      if (specificError) throw specificError;
-      
-      // Combine both types of availability
-      const allSlots = [...(recurringData || []), ...(specificData || [])];
+      // Filter slots based on date
+      const filteredSlots = (availabilityData || []).filter(slot => {
+        if (slot.recurrence) {
+          // For recurring slots, check if this day of week is included in the recurrence pattern
+          const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+          return daysOfWeek.includes(dayOfWeek as DayOfWeek);
+        } else {
+          // For one-time slots, check if the date matches
+          const slotDate = new Date(slot.start_time);
+          const slotDateStr = format(slotDate, 'yyyy-MM-dd');
+          return slotDateStr === formattedDate;
+        }
+      });
       
       // Generate time slots from availability
-      if (allSlots.length > 0) {
-        const slots = generateTimeSlots(allSlots, formattedDate);
+      if (filteredSlots.length > 0) {
+        const slots = generateTimeSlots(filteredSlots, formattedDate);
         setTimeSlots(slots);
       } else {
         setTimeSlots([]);
@@ -199,15 +199,31 @@ export default function WidgetPreviewPage() {
   }
 
   // Generate 30-minute time slots from availability ranges
-  function generateTimeSlots(slots: AvailableSlot[], dateStr: string) {
+  function generateTimeSlots(slots: any[], dateStr: string) {
     const timeSlots: {time: string, formatted: string}[] = [];
     
     slots.forEach(slot => {
-      const startTime = parse(slot.start_time, 'HH:mm:ss', new Date());
-      const endTime = parse(slot.end_time, 'HH:mm:ss', new Date());
+      // Extract time parts from ISO timestamps
+      const startTime = new Date(slot.start_time);
+      const endTime = new Date(slot.end_time);
       
-      let currentTime = startTime;
-      while (currentTime < endTime) {
+      // If the slot is a one-time slot for a specific date, make sure it's for today
+      if (!slot.recurrence) {
+        const slotDateStr = format(startTime, 'yyyy-MM-dd');
+        if (slotDateStr !== dateStr) return;
+      }
+      
+      let currentTime = new Date(startTime);
+      const adjustedEndTime = new Date(endTime);
+      
+      // For recurring slots, set the date part to today's date
+      if (slot.recurrence) {
+        currentTime = new Date(`${dateStr}T${format(currentTime, 'HH:mm:ss')}`);
+        adjustedEndTime.setFullYear(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
+      }
+      
+      // Generate 30-minute slots from start to end time
+      while (currentTime < adjustedEndTime) {
         const timeStr = format(currentTime, 'HH:mm');
         timeSlots.push({
           time: timeStr,

@@ -1,17 +1,21 @@
-// Export types
+// Export calculations and types
+export * from './calculations';
 export * from './types';
+export * from './dates';
+export * from './additional';
 
-// Export formatting utilities
+// Export helpers (with renamed helpers to avoid conflicts)
+export {
+  parseTimeString,
+  calculateMergedSlot,
+  calculateMergedTimeOffSlot,
+  createISOTimestamp,
+  isAllDayTimeOff
+} from './helpers';
+
+// Export format utilities
 export * from './format';
 
-// Export date utilities
-export * from './dates';
-
-// Export calculation utilities
-export * from './calculations';
-
-// Export conflict resolution utilities
-export * from './conflicts';
-
-// Export additional utilities
-export * from './additional'; 
+// Export availability utilities
+export * from './availability';
+export * from './conflicts'; 

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addMinutes, format, parse, isBefore, setHours, setMinutes, getDay } from 'date-fns';
 import { supabaseAdmin } from '@/app/utils/supabase-server';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+
+// Helper function to convert time string to minutes since midnight
+function timeToMinutes(time: string): number {
+  const [hours, minutes, seconds] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -53,7 +60,7 @@ export async function GET(request: NextRequest) {
   try {
     // Fetch therapist profile
     const { data: therapistData, error: profileError } = await supabaseAdmin
-      .from('therapist_profiles')
+      .from('therapists')
       .select('*')
       .eq('id', therapistId)
       .single();
@@ -65,50 +72,47 @@ export async function GET(request: NextRequest) {
       }, { status: 404 });
     }
 
-    const dayOfWeek = getDay(selectedDate); // 0 = Sunday, 6 = Saturday
+    // 1. Fetch availability for this therapist
+    console.log(`Fetching availability for therapist ${therapistId}`);
+    const { data: availabilityData, error: availabilityError } = await supabaseAdmin
+      .from('availability')
+      .select('*')
+      .eq('therapist_id', therapistId);
+
+    if (availabilityError) {
+      console.error('Error fetching availability:', availabilityError);
+      return NextResponse.json({ 
+        error: 'Failed to fetch availability' 
+      }, { status: 500 });
+    }
     
+    // Filter availability for this specific day (either recurring on this day or one-time for this date)
+    const dayOfWeek = getDay(selectedDate) as DayOfWeek; // 0 = Sunday, 6 = Saturday
     console.log(`Using formatted date: ${formattedDate}, day of week: ${dayOfWeek}`);
-
-    // 1. Fetch RECURRING availability for this day of the week
-    console.log(`Fetching recurring availability for therapist ${therapistId} on day of week ${dayOfWeek}`);
-    const { data: recurringAvailability, error: recurringError } = await supabaseAdmin
-      .from('therapist_availability')
-      .select('*')
-      .eq('therapist_id', therapistId)
-      .eq('day_of_week', dayOfWeek)
-      .eq('is_recurring', true);
-
-    if (recurringError) {
-      console.error('Error fetching recurring availability:', recurringError);
-      return NextResponse.json({ 
-        error: 'Failed to fetch recurring availability' 
-      }, { status: 500 });
-    }
-
-    // 2. Fetch SPECIFIC availability for this exact date
-    console.log(`Fetching specific availability for therapist ${therapistId} on date ${formattedDate}`);
-    const { data: specificAvailability, error: specificError } = await supabaseAdmin
-      .from('therapist_availability')
-      .select('*')
-      .eq('therapist_id', therapistId)
-      .eq('specific_date', formattedDate)
-      .eq('is_recurring', false);
-
-    if (specificError) {
-      console.error('Error fetching specific availability:', specificError);
-      return NextResponse.json({ 
-        error: 'Failed to fetch specific availability' 
-      }, { status: 500 });
-    }
+    
+    // Filter availability into recurring and specific for this day
+    const recurringAvailability = availabilityData?.filter(slot => {
+      if (!slot.recurrence) return false;
+      const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+      return daysOfWeek.includes(dayOfWeek);
+    }) || [];
+    
+    const specificAvailability = availabilityData?.filter(slot => {
+      if (slot.recurrence) return false;
+      // Extract date part from the start_time ISO string
+      const slotDate = new Date(slot.start_time);
+      const slotDateStr = format(slotDate, 'yyyy-MM-dd');
+      return slotDateStr === formattedDate;
+    }) || [];
+    
+    console.log(`Found ${recurringAvailability.length} recurring availability slots and ${specificAvailability.length} specific date slots`);
 
     // 3. Fetch TIME OFF for this date
     console.log(`Fetching time off for date: ${formattedDate}`);
     const { data: timeOffData, error: timeOffError } = await supabaseAdmin
       .from('time_off')
       .select('*')
-      .eq('therapist_id', therapistId)
-      .eq('is_recurring', false)
-      .or(`start_date.lte.${formattedDate},end_date.gte.${formattedDate}`);
+      .eq('therapist_id', therapistId);
 
     if (timeOffError) {
       console.error('Error fetching time off:', timeOffError);
@@ -117,53 +121,30 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
     
-    if (timeOffData && timeOffData.length > 0) {
-      console.log(`Found ${timeOffData.length} specific time off records`);
-      timeOffData.forEach((timeOff, index) => {
-        console.log(`Time off record ${index + 1}:`, {
-          start_date: timeOff.start_date,
-          end_date: timeOff.end_date,
-          is_all_day: timeOff.is_all_day,
-          start_time: timeOff.start_time,
-          end_time: timeOff.end_time
-        });
-      });
-    } else {
-      console.log('No specific time off found for this date');
-    }
-
-    // 4. Also check for recurring time off for this day of week
-    console.log(`Fetching recurring time off for day of week: ${dayOfWeek}`);
-    const { data: recurringTimeOff, error: recurringTimeOffError } = await supabaseAdmin
-      .from('time_off')
-      .select('*')
-      .eq('therapist_id', therapistId)
-      .eq('day_of_week', dayOfWeek)
-      .eq('is_recurring', true);
-
-    if (recurringTimeOffError) {
-      console.error('Error fetching recurring time off:', recurringTimeOffError);
-      return NextResponse.json({ 
-        error: 'Failed to fetch recurring time off data' 
-      }, { status: 500 });
-    }
+    // Filter time-off for this specific day (either recurring on this day or one-time that includes this date)
+    const specificTimeOff = timeOffData?.filter(timeOff => {
+      if (timeOff.recurrence) return false;
+      
+      // Extract dates from start_time and end_time
+      const startDate = new Date(timeOff.start_time);
+      const endDate = new Date(timeOff.end_time);
+      const startDateStr = format(startDate, 'yyyy-MM-dd');
+      const endDateStr = format(endDate, 'yyyy-MM-dd');
+      
+      // Check if formattedDate is within the range
+      return formattedDate >= startDateStr && formattedDate <= endDateStr;
+    }) || [];
     
-    if (recurringTimeOff && recurringTimeOff.length > 0) {
-      console.log(`Found ${recurringTimeOff.length} recurring time off records`);
-      recurringTimeOff.forEach((timeOff, index) => {
-        console.log(`Recurring time off ${index + 1}:`, {
-          day_of_week: timeOff.day_of_week,
-          is_all_day: timeOff.is_all_day,
-          start_time: timeOff.start_time,
-          end_time: timeOff.end_time
-        });
-      });
-    } else {
-      console.log('No recurring time off found for this day of week');
-    }
+    const recurringTimeOff = timeOffData?.filter(timeOff => {
+      if (!timeOff.recurrence) return false;
+      const daysOfWeek = getDaysOfWeekFromRecurrence(timeOff.recurrence);
+      return daysOfWeek.includes(dayOfWeek);
+    }) || [];
+    
+    console.log(`Found ${specificTimeOff.length} specific time-off periods and ${recurringTimeOff.length} recurring time-off periods for this day`);
 
     // Combine both specific and recurring time off
-    const allTimeOff = [...(timeOffData || []), ...(recurringTimeOff || [])];
+    const allTimeOff = [...specificTimeOff, ...recurringTimeOff];
 
     // 5. Fetch existing APPOINTMENTS for this date
     const { data: appointmentsData, error: appointmentsError } = await supabaseAdmin
@@ -261,44 +242,58 @@ export async function GET(request: NextRequest) {
         const slotTime = slot.time;
         return !allTimeOff.some(timeOff => {
           try {
-            // Check for all-day time off first
-            if (timeOff.is_all_day === true) {
-              // For non-recurring, make sure it applies to this specific date
-              if (!timeOff.is_recurring) {
-                if (timeOff.start_date && timeOff.end_date) {
-                  // Check if formattedDate is within the date range
-                  if (formattedDate >= timeOff.start_date && formattedDate <= timeOff.end_date) {
-                    console.log(`All-day time off blocks slot ${slotTime} on ${formattedDate}`);
-                    return true;
-                  }
-                  return false;
+            // Extract dates from start_time and end_time for time off
+            const timeOffStart = new Date(timeOff.start_time);
+            const timeOffEnd = new Date(timeOff.end_time);
+            const timeOffStartDate = format(timeOffStart, 'yyyy-MM-dd');
+            const timeOffEndDate = format(timeOffEnd, 'yyyy-MM-dd');
+            
+            // Check for all-day time off
+            const isAllDay = timeToMinutes(format(timeOffStart, 'HH:mm:ss')) <= 10 && 
+                       timeToMinutes(format(timeOffEnd, 'HH:mm:ss')) >= (24 * 60 - 10);
+                
+            if (isAllDay) {
+              // Check if this time off applies to this date
+              if (!timeOff.recurrence) {
+                // For non-recurring, check if this date is within the range
+                if (formattedDate >= timeOffStartDate && formattedDate <= timeOffEndDate) {
+                  console.log(`All-day time off blocks slot ${slotTime} on ${formattedDate}`);
+                  return true;
                 }
-              } else if (timeOff.is_recurring && timeOff.day_of_week === dayOfWeek) {
-                // For recurring, check day of week
-                console.log(`Recurring all-day time off blocks slot ${slotTime} on day ${dayOfWeek}`);
-                return true;
+                return false;
+              } else {
+                // For recurring, check if this day of week is included in the recurrence pattern
+                const daysOfWeek = getDaysOfWeekFromRecurrence(timeOff.recurrence);
+                if (daysOfWeek.includes(dayOfWeek)) {
+                  console.log(`Recurring all-day time off blocks slot ${slotTime} on day ${dayOfWeek}`);
+                  return true;
+                }
+                return false;
               }
-              return false;
             }
             
             // For time-based blocks
-            if (!timeOff.is_recurring) {
+            if (!timeOff.recurrence) {
               // Check if this time off applies to the date
-              if (timeOff.start_date && timeOff.end_date) {
-                if (formattedDate < timeOff.start_date || formattedDate > timeOff.end_date) {
-                  return false; // Skip if not in date range
-                }
+              if (formattedDate < timeOffStartDate || formattedDate > timeOffEndDate) {
+                return false; // Skip if not in date range
               }
-            } else if (timeOff.day_of_week !== dayOfWeek) {
-              return false; // Skip if recurring but not matching day of week
+            } else {
+              // For recurring, check if this day of week is included in the recurrence pattern
+              const daysOfWeek = getDaysOfWeekFromRecurrence(timeOff.recurrence);
+              if (!daysOfWeek.includes(dayOfWeek)) {
+                return false; // Skip if not matching day of week
+              }
             }
             
-            const timeOffStart = format(parse(timeOff.start_time, 'HH:mm:ss', new Date()), 'HH:mm');
-            const timeOffEnd = format(parse(timeOff.end_time, 'HH:mm:ss', new Date()), 'HH:mm');
+            // Extract time parts for comparison
+            const timeOffStartTime = format(timeOffStart, 'HH:mm');
+            const timeOffEndTime = format(timeOffEnd, 'HH:mm');
             
-            const overlaps = slotTime >= timeOffStart && slotTime < timeOffEnd;
+            // Check for overlap in time
+            const overlaps = slotTime >= timeOffStartTime && slotTime < timeOffEndTime;
             if (overlaps) {
-              console.log(`Slot ${slotTime} overlaps with time off ${timeOffStart}-${timeOffEnd}`);
+              console.log(`Slot ${slotTime} overlaps with time off ${timeOffStartTime}-${timeOffEndTime}`);
             }
             return overlaps;
           } catch (error) {
@@ -376,4 +371,4 @@ export async function GET(request: NextRequest) {
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
-} 
+}

@@ -3,14 +3,11 @@ export interface TimeBlock {
   id: string;
   start_time: string;
   end_time: string;
-  is_recurring: boolean;
+  recurrence: string | null;
   type: 'availability' | 'time-off' | 'appointment';
   reason?: string;
   original: any;
   original_time?: string;
-  is_all_day?: boolean;
-  start_date?: string;
-  end_date?: string;
   client_name?: string;
   status?: string;
   overrides_time_off?: boolean;

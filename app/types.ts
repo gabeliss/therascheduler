@@ -33,12 +33,9 @@ export interface Appointment {
 export interface Availability {
   id: string;
   therapist_id: string;
-  day_of_week: number;
   start_time: string;
   end_time: string;
-  is_available: boolean;
-  is_recurring: boolean;
-  specific_date?: string;
+  recurrence: string | null; // "weekly:Day1,Day2,..." or null for one-time
   reason?: string;
   created_at: string;
   updated_at: string;
@@ -48,11 +45,9 @@ export interface Availability {
 export interface BaseAvailability {
   id: string;
   therapist_id: string;
-  day_of_week: number;
   start_time: string;
   end_time: string;
-  is_recurring: boolean;
-  specific_date?: string;
+  recurrence: string | null; // "weekly:Day1,Day2,..." or null for one-time
   created_at: string;
   updated_at: string;
 }
@@ -74,11 +69,9 @@ export interface HierarchicalAvailability {
 
 // Form input types for hierarchical availability
 export interface BaseAvailabilityInput {
-  dayOfWeek: number;
   startTime: string;
   endTime: string;
-  isRecurring: boolean;
-  specificDate?: string;
+  recurrence: string | null; // "weekly:Day1,Day2,..." or null for one-time
 }
 
 export interface ExceptionInput {

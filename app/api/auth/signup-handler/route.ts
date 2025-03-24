@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     
     // Check if a profile already exists for this user
     const { data: existingProfiles, error: checkError } = await supabaseAdmin
-      .from('therapist_profiles')
+      .from('therapists')
       .select('*')
       .or(`user_id.eq.${user_id},email.eq.${email}`);
     
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       if (existingProfile.user_id !== user_id) {
         // Update the profile to have the correct user_id
         const { data: updatedProfile, error: updateError } = await supabaseAdmin
-          .from('therapist_profiles')
+          .from('therapists')
           .update({ user_id: user_id })
           .eq('id', existingProfile.id)
           .select();
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     
     // No profile exists, create a new one
     const { data: newProfile, error: createError } = await supabaseAdmin
-      .from('therapist_profiles')
+      .from('therapists')
       .insert([
         {
           user_id: user_id,

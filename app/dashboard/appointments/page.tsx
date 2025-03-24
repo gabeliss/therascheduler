@@ -198,7 +198,7 @@ export default function AppointmentsPage() {
       
       // First, create or get the client profile
       const { data: existingClient, error: clientError } = await supabase
-        .from('client_profiles')
+        .from('clients')
         .select('id')
         .eq('email', data.clientEmail)
         .single();
@@ -213,7 +213,7 @@ export default function AppointmentsPage() {
       } else {
         // Create a new client profile
         const { data: newClient, error: createError } = await supabase
-          .from('client_profiles')
+          .from('clients')
           .insert([
             {
               name: data.clientName,
@@ -300,7 +300,7 @@ export default function AppointmentsPage() {
       
       // First, create or get the client profile
       const { data: existingClient, error: clientError } = await supabase
-        .from('client_profiles')
+        .from('clients')
         .select('id')
         .eq('email', pendingAppointmentData.clientEmail)
         .single();
@@ -315,7 +315,7 @@ export default function AppointmentsPage() {
       } else {
         // Create a new client profile
         const { data: newClient, error: createError } = await supabase
-          .from('client_profiles')
+          .from('clients')
           .insert([
             {
               name: pendingAppointmentData.clientName,

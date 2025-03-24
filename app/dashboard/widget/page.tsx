@@ -46,9 +46,9 @@ export default function WidgetPage() {
         console.log('Auth user ID:', authData.session?.user?.id);
         console.log('Does auth ID match context user ID:', authData.session?.user?.id === user.id);
         
-        // First, let's check if the user ID exists in the therapist_profiles table
+        // First, let's check if the user ID exists in the therapists table
         const { data: checkData, error: checkError } = await supabase
-          .from('therapist_profiles')
+          .from('therapists')
           .select('*')
           .eq('user_id', user.id);
           
@@ -56,7 +56,7 @@ export default function WidgetPage() {
         
         // Now try to get the actual profile
         const { data: therapistProfile, error } = await supabase
-          .from('therapist_profiles')
+          .from('therapists')
           .select('id, user_id')
           .eq('user_id', user.id)
           .single();
@@ -70,7 +70,7 @@ export default function WidgetPage() {
             
             // Try without single() to see if we get any results
             const { data: allProfiles, error: listError } = await supabase
-              .from('therapist_profiles')
+              .from('therapists')
               .select('id, user_id')
               .eq('user_id', user.id);
               

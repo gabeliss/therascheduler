@@ -10,19 +10,18 @@ export const baseAvailabilitySchema = z.object({
   endTime: z.string(),
 });
 
-// Exception form schema
+// Exception form schema - updated to use only new schema fields
 export const exceptionSchema = z.object({
   startTime: z.string(),
   endTime: z.string(),
   reason: z.string().optional(),
-  isRecurring: z.boolean().default(false),
-  dayOfWeek: z.number().optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  isAllDay: z.boolean().default(false),
+  recurrence: z.string().nullable().default(null),
   skipToast: z.boolean().optional(),
   isBatchOperation: z.boolean().optional(),
   skipOverlapCheck: z.boolean().optional(),
+  // Add these fields for API use, though they're not part of the form itself
+  start_time: z.string().optional(),
+  end_time: z.string().optional(),
 });
 
 // Define the types after the schemas

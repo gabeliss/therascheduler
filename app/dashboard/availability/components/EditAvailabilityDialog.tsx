@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TherapistAvailability } from '@/app/hooks/use-therapist-availability';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
 // Import from the new modular structure
 import { TIME_OPTIONS, formatTime } from '../utils/time/format';
@@ -78,20 +79,26 @@ const EditAvailabilityDialog = ({
 
   // Generate title based on availability type
   let title = '';
-  if (availability.is_recurring) {
-    // For recurring availability, show the day of week
-    const dayName = availability.day_of_week !== undefined 
-      ? ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][availability.day_of_week]
-      : 'Unknown';
-    title = `Edit Availability for ${dayName}s`;
+  if (availability.recurrence) {
+    // For recurring availability, show the days of week
+    const daysOfWeek = getDaysOfWeekFromRecurrence(availability.recurrence);
+    // Convert day numbers to names and join them
+    const dayNames = daysOfWeek.map(day => 
+      ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day]
+    );
+    
+    if (dayNames.length === 1) {
+      title = `Edit Availability for ${dayNames[0]}s`;
+    } else if (dayNames.length > 0) {
+      const lastDay = dayNames.pop();
+      title = `Edit Availability for ${dayNames.join(', ')} and ${lastDay}s`;
+    } else {
+      title = 'Edit Recurring Availability';
+    }
   } else {
     // For non-recurring availability, show the date
-    if (availability.specific_date) {
-      const date = new Date(availability.specific_date + 'T00:00:00');
-      title = `Edit Availability for ${format(date, 'EEEE, MMMM do')}`;
-    } else {
-      title = 'Edit Availability for Unknown Date';
-    }
+    const date = new Date(availability.start_time);
+    title = `Edit Availability for ${format(date, 'EEEE, MMMM do')}`;
   }
 
   return (

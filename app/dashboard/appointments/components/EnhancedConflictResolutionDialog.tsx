@@ -36,8 +36,8 @@ export default function EnhancedConflictResolutionDialog({
   const [confirmOverride, setConfirmOverride] = useState(false);
   
   // Determine the severity of the conflict
-  const isHighSeverity = appointmentConflict || (timeOffConflict && timeOffConflict.exception && !timeOffConflict.exception.is_recurring);
-  const isMediumSeverity = !appointmentConflict && timeOffConflict && timeOffConflict.exception && timeOffConflict.exception.is_recurring;
+  const isHighSeverity = appointmentConflict || (timeOffConflict && !timeOffConflict.timeOff.recurrence);
+  const isMediumSeverity = !appointmentConflict && timeOffConflict && timeOffConflict.timeOff.recurrence;
   const isLowSeverity = !appointmentConflict && availabilityConflict && !timeOffConflict;
   
   // Reset state when dialog opens/closes
@@ -138,7 +138,7 @@ export default function EnhancedConflictResolutionDialog({
           )}
           
           {/* Time-Off Conflict Details */}
-          {timeOffConflict && timeOffConflict.exception && (
+          {timeOffConflict && timeOffConflict.timeOff && (
             <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
               <h3 className="font-semibold text-gray-700 flex items-center mb-2">
                 <Calendar className="h-4 w-4 mr-2" />
@@ -146,16 +146,16 @@ export default function EnhancedConflictResolutionDialog({
               </h3>
               <p className="text-gray-700 text-sm">{timeOffConflict?.message}</p>
               
-              {timeOffConflict.exception.is_recurring ? (
+              {timeOffConflict.timeOff.recurrence ? (
                 <div className="mt-2 text-xs text-gray-600">
-                  <p>Recurring time-off: {formatTime(timeOffConflict.exception.start_time)} - {formatTime(timeOffConflict.exception.end_time)}</p>
-                  <p className="mt-1">This time is blocked off every {format(new Date(2023, 0, (timeOffConflict.exception.day_of_week || 0) + 1), 'EEEE')}.</p>
+                  <p>Recurring time-off: {formatTime(timeOffConflict.timeOff.start_time)} - {formatTime(timeOffConflict.timeOff.end_time)}</p>
+                  <p className="mt-1">This time is blocked off according to your recurring pattern.</p>
                 </div>
               ) : (
                 <div className="mt-2 text-xs text-gray-600">
-                  <p>Time-off period: {timeOffConflict.exception.start_date && format(new Date(timeOffConflict.exception.start_date), 'MMM d, yyyy')} to {timeOffConflict.exception.end_date && format(new Date(timeOffConflict.exception.end_date), 'MMM d, yyyy')}</p>
-                  {timeOffConflict.exception.reason && (
-                    <p className="mt-1">Reason: {timeOffConflict.exception.reason}</p>
+                  <p>Time-off period: {format(new Date(timeOffConflict.timeOff.start_time), 'MMM d, yyyy')} to {format(new Date(timeOffConflict.timeOff.end_time), 'MMM d, yyyy')}</p>
+                  {timeOffConflict.timeOff.reason && (
+                    <p className="mt-1">Reason: {timeOffConflict.timeOff.reason}</p>
                   )}
                 </div>
               )}

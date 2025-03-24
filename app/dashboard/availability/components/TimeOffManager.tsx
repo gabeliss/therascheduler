@@ -13,7 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Clock, Calendar as CalendarIcon, Loader2, AlertCircle } from 'lucide-react';
-import { UnifiedAvailabilityException } from '@/app/types/index';
+import { TimeOff } from '@/app/types/index';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Select,
@@ -40,10 +40,10 @@ import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 interface TimeOffManagerProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  exceptions: UnifiedAvailabilityException[];
+  exceptions: TimeOff[];
   onDeleteException: (id: string) => void;
   onAddException: (formData: ExceptionFormValues) => Promise<void>;
-  onEditException?: (exception: UnifiedAvailabilityException) => void;
+  onEditException?: (exception: TimeOff) => void;
 }
 
 export default function TimeOffManager({ 
@@ -113,12 +113,18 @@ export default function TimeOffManager({
       for (const dayIndex of selectedDays) {
         const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
         
+        // Create recurrence string for this day
+        const recurrence = `weekly:${adjustedDayIndex}`;
+        
+        // Create full ISO timestamps with today's date
+        const today = new Date().toISOString().split('T')[0];
+        const start_time = `${today}T${startTime}:00`;
+        const end_time = `${today}T${endTime}:00`;
+        
         const clash = checkTimeOffAppointmentClash({
-          startTime: `${startTime}:00`,
-          endTime: `${endTime}:00`,
-          isRecurring: true,
-          dayOfWeek: adjustedDayIndex,
-          isAllDay,
+          start_time,
+          end_time,
+          recurrence,
           appointments
         });
         
@@ -128,17 +134,18 @@ export default function TimeOffManager({
         }
       }
     } else if (activeTab === 'specific' && startDate && endDate) {
-      // Check specific date range for clashes
+      // Format dates
       const formattedStartDate = format(startDate, 'yyyy-MM-dd');
       const formattedEndDate = format(endDate, 'yyyy-MM-dd');
       
+      // Create full ISO timestamps
+      const start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+      const end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
+      
       const clash = checkTimeOffAppointmentClash({
-        startDate: formattedStartDate,
-        endDate: formattedEndDate,
-        startTime: `${startTime}:00`,
-        endTime: `${endTime}:00`,
-        isRecurring: false,
-        isAllDay,
+        start_time,
+        end_time,
+        recurrence: null,
         appointments
       });
       
@@ -180,38 +187,37 @@ export default function TimeOffManager({
   
   // Sort exceptions by date
   const sortedExceptions = [...exceptions].sort((a, b) => {
-    if (a.is_recurring && !b.is_recurring) return -1;
-    if (!a.is_recurring && b.is_recurring) return 1;
+    if (a.recurrence && !b.recurrence) return -1;
+    if (!a.recurrence && b.recurrence) return 1;
     
-    if (a.is_recurring && b.is_recurring) {
-      // Sort recurring exceptions by day of week
-      return (a.day_of_week || 0) - (b.day_of_week || 0);
+    if (a.recurrence && b.recurrence) {
+      // Sort recurring exceptions by recurrence pattern
+      return a.recurrence.localeCompare(b.recurrence);
     } else {
       // Sort non-recurring exceptions by start date
-      if (!a.start_date || !b.start_date) return 0;
-      return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
     }
   });
   
   // Filter exceptions by type
-  const recurringExceptions = exceptions.filter(ex => ex.is_recurring);
-  const specificExceptions = exceptions.filter(ex => !ex.is_recurring);
+  const recurringExceptions = exceptions.filter(ex => ex.recurrence);
+  const specificExceptions = exceptions.filter(ex => !ex.recurrence);
   
-  // Group recurring exceptions by day of week
-  const groupedRecurringExceptions: { [key: string]: UnifiedAvailabilityException[] } = {};
+  // Group recurring exceptions by recurrence pattern
+  const groupedRecurringExceptions: { [key: string]: TimeOff[] } = {};
   
   recurringExceptions.forEach(ex => {
-    const dayName = getDayName(ex.day_of_week);
-    if (!groupedRecurringExceptions[dayName]) {
-      groupedRecurringExceptions[dayName] = [];
+    const recurrencePattern = ex.recurrence || 'Unknown';
+    if (!groupedRecurringExceptions[recurrencePattern]) {
+      groupedRecurringExceptions[recurrencePattern] = [];
     }
-    groupedRecurringExceptions[dayName].push(ex);
+    groupedRecurringExceptions[recurrencePattern].push(ex);
   });
   
   // Sort specific exceptions by date
   const sortedSpecificExceptions = [...specificExceptions].sort((a, b) => {
-    if (!a.start_date || !b.start_date) return 0;
-    return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+    if (!a.start_time || !b.start_time) return 0;
+    return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
   });
   
   // Helper function to get day name
@@ -256,12 +262,18 @@ export default function TimeOffManager({
       for (const dayIndex of selectedDays) {
         const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
         
+        // Create recurrence string for this day
+        const recurrence = `weekly:${adjustedDayIndex}`;
+        
+        // Create full ISO timestamps with today's date
+        const today = new Date().toISOString().split('T')[0];
+        const start_time = `${today}T${startTime}:00`;
+        const end_time = `${today}T${endTime}:00`;
+        
         const clash = checkTimeOffAppointmentClash({
-          startTime: `${startTime}:00`,
-          endTime: `${endTime}:00`,
-          isRecurring: true,
-          dayOfWeek: adjustedDayIndex,
-          isAllDay,
+          start_time,
+          end_time,
+          recurrence,
           appointments
         });
         
@@ -271,16 +283,18 @@ export default function TimeOffManager({
         }
       }
     } else if (activeTab === 'specific' && startDate && endDate) {
+      // Format dates
       const formattedStartDate = format(startDate, 'yyyy-MM-dd');
       const formattedEndDate = format(endDate, 'yyyy-MM-dd');
       
+      // Create full ISO timestamps
+      const start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+      const end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
+      
       const clash = checkTimeOffAppointmentClash({
-        startDate: formattedStartDate,
-        endDate: formattedEndDate,
-        startTime: `${startTime}:00`,
-        endTime: `${endTime}:00`,
-        isRecurring: false,
-        isAllDay,
+        start_time,
+        end_time,
+        recurrence: null,
         appointments
       });
       
@@ -299,17 +313,25 @@ export default function TimeOffManager({
         let overlapDay = '';
         
         for (const dayIndex of selectedDays) {
+          const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
+          
+          // Create recurrence string for this day
+          const recurrence = `weekly:${adjustedDayIndex}`;
+          
+          // Create full ISO timestamps with today's date
+          const today = new Date().toISOString().split('T')[0];
+          const start_time = `${today}T${startTime}:00`;
+          const end_time = `${today}T${endTime}:00`;
+          
           const hasOverlapForDay = checkForOverlaps(
             startTime,
             endTime,
-            true,
-            dayIndex - 1, // Adjust index to match day of week (0-6)
-            undefined
+            recurrence
           );
           
           if (hasOverlapForDay) {
             hasOverlap = true;
-            overlapDay = DAYS_OF_WEEK[dayIndex - 1];
+            overlapDay = DAYS_OF_WEEK[adjustedDayIndex];
             break;
           }
         }
@@ -329,7 +351,16 @@ export default function TimeOffManager({
           // Process all days at once to avoid multiple toasts
           for (let i = 0; i < totalDays; i++) {
             const dayIndex = selectedDays[i];
+            const adjustedDayIndex = dayIndex - 1; // Adjust index to match day of week (0-6)
             const isLastDay = i === totalDays - 1;
+            
+            // Create recurrence string for this day
+            const recurrence = `weekly:${adjustedDayIndex}`;
+            
+            // Create full ISO timestamps with today's date
+            const today = new Date().toISOString().split('T')[0];
+            const start_time = `${today}T${isAllDay ? '00:00' : startTime}:00`;
+            const end_time = `${today}T${isAllDay ? '23:59' : endTime}:00`;
             
             // Add each day's time off to our batch
             promises.push(
@@ -337,9 +368,9 @@ export default function TimeOffManager({
                 startTime,
                 endTime,
                 reason,
-                isRecurring: true,
-                dayOfWeek: dayIndex - 1, // Adjust index to match day of week (0-6)
-                isAllDay,
+                recurrence,
+                start_time,
+                end_time,
                 isBatchOperation: !isLastDay, // Mark all but the last one as batch operations
                 skipToast: !isLastDay // Skip toast for all but the last one
               })
@@ -361,14 +392,15 @@ export default function TimeOffManager({
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
+        // Create full ISO timestamps
+        const start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+        const end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
+        
         // Check for overlaps
         const hasOverlap = checkForOverlaps(
           startTime,
           endTime,
-          false,
-          undefined,
-          formattedStartDate,
-          formattedEndDate
+          null
         );
         
         if (hasOverlap) {
@@ -382,10 +414,9 @@ export default function TimeOffManager({
           startTime,
           endTime,
           reason,
-          isRecurring: false,
-          startDate: formattedStartDate,
-          endDate: formattedEndDate,
-          isAllDay
+          recurrence: null,
+          start_time,
+          end_time
         });
       }
       

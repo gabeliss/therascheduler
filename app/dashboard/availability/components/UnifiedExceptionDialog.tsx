@@ -37,6 +37,7 @@ import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { format } from 'date-fns';
 import { useUnifiedAvailability } from '@/app/hooks/use-unified-availability';
 import { useAppointments } from '@/app/hooks/use-appointments';
+import { createRecurrenceString, DayOfWeek } from '@/app/utils/schema-converters';
 
 // Import from the new modular structure
 import { DAYS_OF_WEEK, BUSINESS_HOURS } from '../utils/time/types';
@@ -47,8 +48,8 @@ import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 interface UnifiedExceptionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: ExceptionFormValues) => Promise<void>;
-  specificDate?: Date;
+  onSubmit: (data: ExceptionFormValues & { start_time?: string, end_time?: string }) => Promise<void>;
+  specificDate?: Date; // Still needed for backward compatibility with calling components
   selectedDate?: Date | null;
 }
 
@@ -61,7 +62,7 @@ const UnifiedExceptionDialog = ({
 }: UnifiedExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isRecurringBlock, setIsRecurringBlock] = useState(false);
+  const [useRecurrence, setUseRecurrence] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(specificDate || externalSelectedDate || undefined);
   const [selectedDay, setSelectedDay] = useState<number | undefined>(
     specificDate ? specificDate.getDay() : undefined
@@ -80,7 +81,7 @@ const UnifiedExceptionDialog = ({
       startTime: '09:00', // Default to 9:00 AM
       endTime: '17:00',   // Default to 5:00 PM
       reason: '',
-      isRecurring: false,
+      recurrence: null
     },
   });
 
@@ -105,25 +106,13 @@ const UnifiedExceptionDialog = ({
   // Watch for changes to start/end time to check for overlaps
   const startTime = form.watch('startTime');
   const endTime = form.watch('endTime');
-  const isAllDay = form.watch('isAllDay');
-
-  // Update form when recurring checkbox changes
-  useEffect(() => {
-    form.setValue('isRecurring', isRecurringBlock);
-    
-    // If we're switching to recurring mode and we have a specific date,
-    // make sure the day of week is set from the specific date
-    if (isRecurringBlock && specificDate && selectedDay === undefined) {
-      setSelectedDay(specificDate.getDay());
-    }
-  }, [isRecurringBlock, form, specificDate, selectedDay]);
 
   // Reset form when dialog is closed
   useEffect(() => {
     if (!isOpen) {
       form.reset();
       setError(null);
-      setIsRecurringBlock(false);
+      setUseRecurrence(false);
       setSelectedDay(specificDate ? specificDate.getDay() : undefined);
     }
   }, [isOpen, form, specificDate]);
@@ -132,7 +121,7 @@ const UnifiedExceptionDialog = ({
   useEffect(() => {
     if (isOpen) {
       setError(null);
-      setIsRecurringBlock(false);
+      setUseRecurrence(false);
       setSelectedDate(specificDate || externalSelectedDate || undefined);
       setSelectedDay(specificDate ? specificDate.getDay() : undefined);
     }
@@ -144,7 +133,7 @@ const UnifiedExceptionDialog = ({
     if (!appointmentsLoading && appointments.length > 0 && isOpen) {
       checkForAppointmentClashes();
     }
-  }, [startTime, endTime, isRecurringBlock, selectedDay, selectedDate, isAllDay, appointments, appointmentsLoading, isOpen]);
+  }, [startTime, endTime, useRecurrence, selectedDay, selectedDate, appointments, appointmentsLoading, isOpen]);
 
   // Function to check for appointment clashes
   const checkForAppointmentClashes = () => {
@@ -154,26 +143,34 @@ const UnifiedExceptionDialog = ({
     // Skip if appointments are still loading
     if (appointmentsLoading) return;
     
-    // Prepare data for clash check
-    let startDate, endDate;
+    // Create recurrence string if it's a recurring block
+    const recurrence = useRecurrence && selectedDay !== undefined 
+      ? createRecurrenceString([selectedDay as DayOfWeek]) 
+      : null;
     
-    if (!isRecurringBlock && selectedDate) {
-      startDate = format(selectedDate, 'yyyy-MM-dd');
-      endDate = startDate;
-    } else if (!isRecurringBlock && specificDate) {
-      startDate = format(specificDate, 'yyyy-MM-dd');
-      endDate = startDate;
+    // Create full ISO timestamps
+    let start_time, end_time;
+    
+    if (selectedDate) {
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      start_time = `${dateStr}T${startTime}:00`;
+      end_time = `${dateStr}T${endTime}:00`;
+    } else if (specificDate) {
+      const dateStr = format(specificDate, 'yyyy-MM-dd');
+      start_time = `${dateStr}T${startTime}:00`;
+      end_time = `${dateStr}T${endTime}:00`;
+    } else {
+      // Use current date for recurring blocks when no specific date is set
+      const today = format(new Date(), 'yyyy-MM-dd');
+      start_time = `${today}T${startTime}:00`;
+      end_time = `${today}T${endTime}:00`;
     }
     
-    // Check for clashes
+    // Modified clash check to use the new parameters
     const clash = checkTimeOffAppointmentClash({
-      startDate,
-      endDate,
-      startTime: `${startTime}:00`,
-      endTime: `${endTime}:00`,
-      isRecurring: isRecurringBlock,
-      dayOfWeek: isRecurringBlock ? selectedDay : undefined,
-      isAllDay,
+      start_time,
+      end_time,
+      recurrence,
       appointments
     });
     
@@ -197,37 +194,46 @@ const UnifiedExceptionDialog = ({
       }
       
       // Validate that we have either a selected date or a day of week
-      if (!isRecurringBlock && !specificDate && !selectedDate) {
+      if (!useRecurrence && !specificDate && !selectedDate) {
         setError('Please pick a specific date');
         setIsSubmitting(false);
         return;
       }
       
-      if (isRecurringBlock && selectedDay === undefined) {
+      if (useRecurrence && selectedDay === undefined) {
         setError('Please select a day of the week');
         setIsSubmitting(false);
         return;
       }
       
-      // Check for appointment clashes
-      let startDate, endDate;
+      // Create recurrence string if it's a recurring block
+      const recurrence = useRecurrence && selectedDay !== undefined 
+        ? createRecurrenceString([selectedDay as DayOfWeek]) 
+        : null;
       
-      if (!isRecurringBlock && selectedDate) {
-        startDate = format(selectedDate, 'yyyy-MM-dd');
-        endDate = startDate;
-      } else if (!isRecurringBlock && specificDate) {
-        startDate = format(specificDate, 'yyyy-MM-dd');
-        endDate = startDate;
+      // Create full ISO timestamps
+      let start_time, end_time;
+      
+      if (!useRecurrence && selectedDate) {
+        const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        start_time = `${dateStr}T${data.startTime}:00`;
+        end_time = `${dateStr}T${data.endTime}:00`;
+      } else if (!useRecurrence && specificDate) {
+        const dateStr = format(specificDate, 'yyyy-MM-dd');
+        start_time = `${dateStr}T${data.startTime}:00`;
+        end_time = `${dateStr}T${data.endTime}:00`;
+      } else {
+        // Use current date for recurring blocks when no specific date is set
+        const today = format(new Date(), 'yyyy-MM-dd');
+        start_time = `${today}T${data.startTime}:00`;
+        end_time = `${today}T${data.endTime}:00`;
       }
       
+      // Modified clash check to use the new parameters
       const clash = checkTimeOffAppointmentClash({
-        startDate,
-        endDate,
-        startTime: `${data.startTime}:00`,
-        endTime: `${data.endTime}:00`,
-        isRecurring: isRecurringBlock,
-        dayOfWeek: isRecurringBlock ? selectedDay : undefined,
-        isAllDay: data.isAllDay,
+        start_time,
+        end_time,
+        recurrence,
         appointments
       });
       
@@ -237,24 +243,19 @@ const UnifiedExceptionDialog = ({
         return;
       }
       
-      // Prepare the form data
-      const formData: ExceptionFormValues = {
-        ...data,
-        isRecurring: isRecurringBlock,
+      // Prepare the form data with new schema fields
+      const formData = {
+        startTime: data.startTime,
+        endTime: data.endTime,
+        reason: data.reason,
+        recurrence,
+        skipToast: data.skipToast,
+        skipOverlapCheck: data.skipOverlapCheck,
+        isBatchOperation: data.isBatchOperation,
+        // Add these for API calls but they won't be in the form schema
+        start_time,
+        end_time
       };
-      
-      // Set the appropriate date or day of week
-      if (isRecurringBlock) {
-        formData.dayOfWeek = selectedDay;
-      } else {
-        // Use specificDate if provided, otherwise use selectedDate
-        const dateToUse = specificDate || selectedDate;
-        if (dateToUse) {
-          const formattedDate = format(dateToUse, 'yyyy-MM-dd');
-          formData.startDate = formattedDate;
-          formData.endDate = formattedDate;
-        }
-      }
       
       await onSubmit(formData);
       
@@ -287,7 +288,7 @@ const UnifiedExceptionDialog = ({
             {isEditing ? 'Edit Time Off' : 
               specificDate 
                 ? `Block Time for ${format(specificDate, 'EEEE, MMMM d')}`
-                : isRecurringBlock 
+                : useRecurrence 
                   ? 'Block Weekly Time' 
                   : 'Block Time Off'}
           </DialogTitle>
@@ -321,8 +322,8 @@ const UnifiedExceptionDialog = ({
             <div className="flex items-center space-x-2">
               <Checkbox 
                 id="blockWeekly" 
-                checked={isRecurringBlock}
-                onCheckedChange={(checked) => setIsRecurringBlock(checked === true)}
+                checked={useRecurrence}
+                onCheckedChange={(checked) => setUseRecurrence(checked === true)}
               />
               <label 
                 htmlFor="blockWeekly" 
@@ -338,7 +339,7 @@ const UnifiedExceptionDialog = ({
             </div>
             
             {/* Day Selection for Recurring - Only show if specificDate is not provided */}
-            {isRecurringBlock && !specificDate && (
+            {useRecurrence && !specificDate && (
               <div className="space-y-2">
                 <FormLabel>Day of Week</FormLabel>
                 <Select
@@ -360,7 +361,7 @@ const UnifiedExceptionDialog = ({
             )}
             
             {/* Date Selection for Specific - Only show if specificDate is not provided */}
-            {!isRecurringBlock && !specificDate && (
+            {!useRecurrence && !specificDate && (
               <div className="space-y-2">
                 <FormLabel>Date</FormLabel>
                 <div className="border rounded-md p-1">

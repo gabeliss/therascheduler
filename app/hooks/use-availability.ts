@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/app/utils/supabase';
 import { Availability } from '@/app/types';
+import { createRecurrenceString, getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
 export function useAvailability() {
   const [availability, setAvailability] = useState<Availability[]>([]);
@@ -21,7 +22,7 @@ export function useAvailability() {
 
       // Get the therapist profile ID
       let { data: therapistProfile, error: profileError } = await supabase
-        .from('therapist_profiles')
+        .from('therapists')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -37,10 +38,9 @@ export function useAvailability() {
       console.log('Using therapist profile:', therapistProfile);
 
       const { data, error } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .select('*')
         .eq('therapist_id', therapistProfile.id)
-        .order('day_of_week', { ascending: true })
         .order('start_time', { ascending: true });
 
       console.log('Fetch availability result:', { data, error });
@@ -62,22 +62,17 @@ export function useAvailability() {
     }
   }
 
+  // Updated to use the new schema
   async function addAvailability({
-    dayOfWeek,
-    startTime,
-    endTime,
-    isRecurring = true,
-    specificDate,
-    isAvailable = true,
+    start_time,
+    end_time,
+    recurrence,
     reason,
     forceAdd = false,
   }: {
-    dayOfWeek: number;
-    startTime: string;
-    endTime: string;
-    isRecurring?: boolean;
-    specificDate?: string;
-    isAvailable?: boolean;
+    start_time: string;
+    end_time: string;
+    recurrence: string | null;
     reason?: string;
     forceAdd?: boolean;
   }) {
@@ -89,7 +84,7 @@ export function useAvailability() {
       
       // First, get the therapist profile ID
       let { data: therapistProfile, error: profileError } = await supabase
-        .from('therapist_profiles')
+        .from('therapists')
         .select('id')
         .eq('user_id', user.id)
         .single();
@@ -108,11 +103,9 @@ export function useAvailability() {
       if (!forceAdd) {
         const hasOverlap = await checkForOverlappingSlots(
           therapistProfile.id,
-          dayOfWeek,
-          startTime,
-          endTime,
-          isRecurring,
-          specificDate
+          start_time,
+          end_time,
+          recurrence
         );
         
         if (hasOverlap) {
@@ -120,24 +113,13 @@ export function useAvailability() {
         }
       }
       
-      const availabilityData: any = {
-        therapist_id: therapistProfile.id, // Use the therapist profile ID, not the user ID
-        day_of_week: dayOfWeek,
-        start_time: startTime,
-        end_time: endTime,
-        is_recurring: isRecurring,
-        is_available: isAvailable,
+      const availabilityData = {
+        therapist_id: therapistProfile.id,
+        start_time,
+        end_time,
+        recurrence,
+        reason
       };
-      
-      // Only add specific_date if isRecurring is false
-      if (!isRecurring && specificDate) {
-        availabilityData.specific_date = specificDate;
-      }
-      
-      // Only add reason if isAvailable is false and reason is provided
-      if (!isAvailable && reason) {
-        availabilityData.reason = reason;
-      }
 
       console.log('Inserting availability data:', availabilityData);
 
@@ -166,29 +148,14 @@ export function useAvailability() {
 
       // Fall back to direct insert
       const { error, data } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .insert([availabilityData])
         .select();
 
       console.log('Insert availability result:', { data, error });
 
       if (error) {
-        // If the error is about specific_date column, try again without it
-        if (error.message?.includes('specific_date')) {
-          console.log('Retrying without specific_date field');
-          delete availabilityData.specific_date;
-          
-          const retryResult = await supabase
-            .from('therapist_availability')
-            .insert([availabilityData])
-            .select();
-            
-          console.log('Retry result:', retryResult);
-          
-          if (retryResult.error) throw retryResult.error;
-        } else {
-          throw error;
-        }
+        throw error;
       }
       
       await fetchAvailability();
@@ -206,93 +173,108 @@ export function useAvailability() {
     }
   }
 
-  // Helper function to check for overlapping time slots
+  // Helper function to check for overlapping time slots (updated for new schema)
   async function checkForOverlappingSlots(
     therapistId: string,
-    dayOfWeek: number,
-    startTime: string,
-    endTime: string,
-    isRecurring: boolean,
-    specificDate?: string
+    start_time: string,
+    end_time: string,
+    recurrence: string | null
   ): Promise<boolean> {
     try {
       // Get existing availability slots for this therapist
-      let query = supabase
-        .from('therapist_availability')
+      const { data: availabilityData, error } = await supabase
+        .from('availability')
         .select('*')
         .eq('therapist_id', therapistId);
+        
+      if (error) throw error;
       
-      if (isRecurring) {
-        // For recurring slots, check only recurring slots on the same day of week
-        query = query
-          .eq('is_recurring', true)
-          .eq('day_of_week', dayOfWeek);
-      } else if (specificDate) {
+      if (!availabilityData || availabilityData.length === 0) {
+        return false; // No existing slots, so no overlaps
+      }
+      
+      // Parse dates from start_time and end_time
+      const newStartTime = new Date(start_time);
+      const newEndTime = new Date(end_time);
+      const newStartMinutes = newStartTime.getHours() * 60 + newStartTime.getMinutes();
+      const newEndMinutes = newEndTime.getHours() * 60 + newEndTime.getMinutes();
+      const newDate = newStartTime.toISOString().split('T')[0];
+      const newDayOfWeek = newStartTime.getDay() as DayOfWeek;
+      
+      // Filter availability based on recurrence
+      let relevantSlots = availabilityData;
+      
+      if (recurrence) {
+        // For recurring slots, check other recurring slots on the same day
+        const newDaysOfWeek = getDaysOfWeekFromRecurrence(recurrence);
+        
+        relevantSlots = availabilityData.filter(slot => {
+          if (!slot.recurrence) return false;
+          
+          // Extract days of week from recurrence pattern
+          const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+          return newDaysOfWeek.some(day => daysOfWeek.includes(day));
+        });
+      } else {
         // For specific date slots, check both:
-        // 1. Specific date slots on the same date
+        // 1. One-time slots on the same date
         // 2. Recurring slots on the same day of week
-        const specificDateSlots = await supabase
-          .from('therapist_availability')
-          .select('*')
-          .eq('therapist_id', therapistId)
-          .eq('is_recurring', false)
-          .eq('specific_date', specificDate);
         
-        const recurringSlots = await supabase
-          .from('therapist_availability')
-          .select('*')
-          .eq('therapist_id', therapistId)
-          .eq('is_recurring', true)
-          .eq('day_of_week', dayOfWeek);
-        
-        const allSlots = [
-          ...(specificDateSlots.data || []),
-          ...(recurringSlots.data || [])
-        ];
-        
-        // Check for overlaps in the combined list
-        return allSlots.some(slot => {
-          return doTimeSlotsOverlap(startTime, endTime, slot.start_time, slot.end_time);
+        relevantSlots = availabilityData.filter(slot => {
+          // Check one-time slots for the same date
+          if (!slot.recurrence) {
+            const slotDate = new Date(slot.start_time);
+            const slotDateStr = slotDate.toISOString().split('T')[0];
+            return slotDateStr === newDate;
+          }
+          
+          // Check recurring slots for the same day of week
+          const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+          return daysOfWeek.includes(newDayOfWeek);
         });
       }
       
-      const { data: existingSlots, error } = await query;
-      
-      if (error) {
-        console.error('Error checking for overlapping slots:', error);
-        return false; // If there's an error, proceed with caution
+      // Check for time overlaps in the relevant slots
+      for (const slot of relevantSlots) {
+        // Extract time from the slot
+        const slotStartTime = new Date(slot.start_time);
+        const slotEndTime = new Date(slot.end_time);
+        
+        const slotStartMinutes = slotStartTime.getHours() * 60 + slotStartTime.getMinutes();
+        const slotEndMinutes = slotEndTime.getHours() * 60 + slotEndTime.getMinutes();
+        
+        // Check if time ranges overlap
+        if (doTimeSlotsOverlap(newStartMinutes, newEndMinutes, slotStartMinutes, slotEndMinutes)) {
+          return true; // Found an overlap
+        }
       }
       
-      // Check if any existing slot overlaps with the new one
-      return (existingSlots || []).some(slot => {
-        return doTimeSlotsOverlap(startTime, endTime, slot.start_time, slot.end_time);
-      });
+      return false; // No overlaps found
     } catch (err) {
-      console.error('Error in checkForOverlappingSlots:', err);
-      return false; // If there's an error, proceed with caution
+      console.error('Error checking for overlapping slots:', err);
+      return false; // Return false on error to let the operation proceed
     }
   }
-  
-  // Helper function to check if two time slots overlap
+
+  // Helper function to check if two time ranges overlap
   function doTimeSlotsOverlap(
-    startTime1: string,
-    endTime1: string,
-    startTime2: string,
-    endTime2: string
+    startMinutes1: number,
+    endMinutes1: number,
+    startMinutes2: number,
+    endMinutes2: number
   ): boolean {
-    // Convert times to minutes since midnight for easier comparison
-    const start1 = timeToMinutes(startTime1);
-    const end1 = timeToMinutes(endTime1);
-    const start2 = timeToMinutes(startTime2);
-    const end2 = timeToMinutes(endTime2);
-    
-    // Check for overlap
-    // Two time ranges overlap if the start of one is before the end of the other,
-    // and the end of one is after the start of the other
-    return start1 < end2 && end1 > start2;
+    // Two time ranges overlap if:
+    // 1. The start of one range is within the other range, or
+    // 2. The end of one range is within the other range, or
+    // 3. One range completely contains the other
+    return (
+      (startMinutes1 >= startMinutes2 && startMinutes1 < endMinutes2) ||
+      (endMinutes1 > startMinutes2 && endMinutes1 <= endMinutes2) ||
+      (startMinutes1 <= startMinutes2 && endMinutes1 >= endMinutes2)
+    );
   }
-  
-  // Helper function to convert HH:MM time to minutes since midnight
+
+  // Helper function to convert time string to minutes since midnight
   function timeToMinutes(time: string): number {
     const [hours, minutes] = time.split(':').map(Number);
     return hours * 60 + minutes;
@@ -301,10 +283,10 @@ export function useAvailability() {
   async function updateAvailability(id: string, updates: Partial<Availability>) {
     try {
       const { error } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .update(updates)
         .eq('id', id);
-
+      
       if (error) throw error;
       await fetchAvailability();
     } catch (err) {
@@ -316,10 +298,10 @@ export function useAvailability() {
   async function deleteAvailability(id: string) {
     try {
       const { error } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .delete()
         .eq('id', id);
-
+      
       if (error) throw error;
       await fetchAvailability();
     } catch (err) {
@@ -335,6 +317,6 @@ export function useAvailability() {
     addAvailability,
     updateAvailability,
     deleteAvailability,
-    refreshAvailability: fetchAvailability,
+    fetchAvailability
   };
 } 

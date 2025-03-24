@@ -1,25 +1,26 @@
 import { useState, useEffect } from 'react';
 import { useSupabase } from '@/app/utils/supabase';
 import { useTherapistProfile } from './use-therapist-profile';
+import { createRecurrenceString, getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+import { Availability } from '@/app/types';
 
+// Explicitly define the interface with all properties to avoid linter errors
 export interface TherapistAvailability {
   id: string;
   therapist_id: string;
-  day_of_week?: number;
   start_time: string;
   end_time: string;
-  is_recurring: boolean;
-  specific_date?: string;
+  recurrence: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface AddAvailabilityParams {
-  startTime: string;
-  endTime: string;
-  isRecurring: boolean;
-  dayOfWeek?: number;
-  specificDate?: string;
+  start_time: string;  // ISO timestamp
+  end_time: string;    // ISO timestamp
+  recurrence: string | null; // "weekly:Day1,Day2,..." or null for one-time
+  // Only keeping _selectedDays as an internal app parameter
+  _selectedDays?: DayOfWeek[]; // Used to help build recurrence string when needed
 }
 
 export function useTherapistAvailability() {
@@ -28,6 +29,16 @@ export function useTherapistAvailability() {
   const [error, setError] = useState<string | null>(null);
   const { supabase } = useSupabase();
   const { therapistProfile, loading: profileLoading } = useTherapistProfile();
+
+  // Helper function to extract days of week from recurrence string
+  const getDaysOfWeek = (recurrence: string | null): DayOfWeek[] => {
+    return getDaysOfWeekFromRecurrence(recurrence);
+  };
+
+  // Helper function to determine if availability is recurring from recurrence string
+  const isRecurring = (recurrence: string | null): boolean => {
+    return !!recurrence;
+  };
 
   // Fetch availability
   const fetchAvailability = async () => {
@@ -38,12 +49,10 @@ export function useTherapistAvailability() {
       setError(null);
 
       const { data, error: fetchError } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .select('*')
         .eq('therapist_id', therapistProfile.id)
-        .order('is_recurring', { ascending: false })
-        .order('day_of_week', { ascending: true })
-        .order('specific_date', { ascending: true })
+        .order('recurrence', { ascending: false })
         .order('start_time', { ascending: true });
 
       if (fetchError) {
@@ -94,27 +103,27 @@ export function useTherapistAvailability() {
       }
 
       console.log('Adding availability with params:', {
-        therapist_id: therapistProfile.id,
         ...params,
-        dayOfWeek_type: typeof params.dayOfWeek,
-        dayOfWeek_value: params.dayOfWeek,
-        isRecurring_type: typeof params.isRecurring,
-        isRecurring_value: params.isRecurring
+        therapist_id: therapistProfile.id,
       });
+      
+      // Create recurrence string if needed but not provided
+      let finalRecurrence = params.recurrence;
+      if (params._selectedDays && params._selectedDays.length > 0 && !finalRecurrence) {
+        finalRecurrence = createRecurrenceString(params._selectedDays);
+      }
       
       const insertData = {
         therapist_id: therapistProfile.id,
-        start_time: params.startTime,
-        end_time: params.endTime,
-        is_recurring: params.isRecurring,
-        day_of_week: params.isRecurring ? params.dayOfWeek : null,
-        specific_date: !params.isRecurring ? params.specificDate : null,
+        start_time: params.start_time,
+        end_time: params.end_time,
+        recurrence: finalRecurrence,
       };
       
       console.log('Final insert data:', insertData);
       
       const { data, error: addError } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .insert([insertData])
         .select('*');
 
@@ -126,7 +135,7 @@ export function useTherapistAvailability() {
       // Refresh availability
       await fetchAvailability();
 
-      return data;
+      return data || [];
     } catch (err) {
       console.error('Error in addAvailability:', err);
       throw err;
@@ -137,7 +146,7 @@ export function useTherapistAvailability() {
   const deleteAvailability = async (id: string) => {
     try {
       const { error: deleteError } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .delete()
         .eq('id', id);
 
@@ -155,87 +164,149 @@ export function useTherapistAvailability() {
 
   // Check for overlaps
   const checkForOverlaps = (
-    startTime: string,
-    endTime: string,
-    isRecurring: boolean,
-    dayOfWeek?: number,
-    specificDate?: string
+    start_time: string,
+    end_time: string,
+    recurrence: string | null
   ): boolean => {
-    // For recurring availability, only check for overlaps with other recurring slots
-    if (isRecurring && dayOfWeek !== undefined) {
-      // For recurring availability, we need to ensure it only affects current and future days
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+    // Helper function to convert time string to minutes
+    const timeToMinutes = (timeStr: string): number => {
+      if (!timeStr) return 0;
       
-      // Get the next occurrence of this day of the week
-      const nextOccurrence = new Date(today);
-      const currentDayOfWeek = today.getDay();
-      const daysToAdd = (dayOfWeek - currentDayOfWeek + 7) % 7;
+      let hours = 0;
+      let minutes = 0;
       
-      // If today is the same day of week and it's already past the start time,
-      // we should consider the next week's occurrence
-      if (daysToAdd === 0) {
-        const currentHour = new Date().getHours();
-        const currentMinute = new Date().getMinutes();
-        const [startHour, startMinute] = startTime.split(':').map(Number);
-        
-        if (currentHour > startHour || (currentHour === startHour && currentMinute >= startMinute)) {
-          nextOccurrence.setDate(nextOccurrence.getDate() + 7);
-        }
-      } else {
-        nextOccurrence.setDate(nextOccurrence.getDate() + daysToAdd);
+      if (timeStr.includes(':')) {
+        const [h, m] = timeStr.split(':').map(Number);
+        hours = h;
+        minutes = m;
+      } else if (timeStr.includes('T')) {
+        const timeComponent = timeStr.split('T')[1];
+        const [h, m] = timeComponent.substring(0, 5).split(':').map(Number);
+        hours = h;
+        minutes = m;
       }
       
-      // Now check for overlaps with other recurring slots for the same day of week
-      return availability.some(slot => {
-        // Only check recurring slots for the same day of week
-        if (slot.is_recurring && slot.day_of_week === dayOfWeek) {
+      return hours * 60 + minutes;
+    };
+    
+    // Parse the recurrence pattern to get the days of week (if applicable)
+    const daysOfWeek = recurrence ? getDaysOfWeekFromRecurrence(recurrence) : [];
+    const isRecurringSlot = recurrence !== null;
+    
+    // For recurring availability
+    if (isRecurringSlot && daysOfWeek.length > 0) {
+      // Check each day for overlaps
+      return daysOfWeek.some(day => {
+        // Now check for overlaps with other recurring slots for the same day of week
+        return availability.some(slot => {
+          if (!slot.recurrence) return false;
+          
+          // Check if this slot includes this day of week
+          const daysInSlot = getDaysOfWeekFromRecurrence(slot.recurrence);
+          if (!daysInSlot.includes(day)) return false;
+          
+          // Extract time components for comparison
+          const slotStartTime = slot.start_time.includes('T') ? 
+            slot.start_time.split('T')[1].substring(0, 5) : 
+            slot.start_time;
+          
+          const slotEndTime = slot.end_time.includes('T') ? 
+            slot.end_time.split('T')[1].substring(0, 5) : 
+            slot.end_time;
+          
+          const newStartTime = start_time.includes('T') ? 
+            start_time.split('T')[1].substring(0, 5) : 
+            start_time;
+          
+          const newEndTime = end_time.includes('T') ? 
+            end_time.split('T')[1].substring(0, 5) : 
+            end_time;
+          
+          // Check time overlap using minutes for more accurate comparison
+          const slotStart = timeToMinutes(slotStartTime);
+          const slotEnd = timeToMinutes(slotEndTime);
+          const newStart = timeToMinutes(newStartTime);
+          const newEnd = timeToMinutes(newEndTime);
+          
           return (
-            (startTime >= slot.start_time && startTime < slot.end_time) ||
-            (endTime > slot.start_time && endTime <= slot.end_time) ||
-            (startTime <= slot.start_time && endTime >= slot.end_time)
+            (newStart >= slotStart && newStart < slotEnd) ||
+            (newEnd > slotStart && newEnd <= slotEnd) ||
+            (newStart <= slotStart && newEnd >= slotEnd)
           );
-        }
-        return false;
+        });
       });
     }
     
-    // For specific date availability
-    if (specificDate) {
-      const specificDateObj = new Date(specificDate);
+    // For one-time availability (non-recurring)
+    if (!isRecurringSlot) {
+      // Create Date objects for comparison
+      const startDate = new Date(start_time);
+      
+      // Don't allow setting availability in the past
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
-      // If the specific date is in the past, don't allow setting availability
-      if (specificDateObj < today) {
+      if (startDate < today) {
         return true; // Treat as overlap to prevent setting availability in the past
       }
       
-      // Check for overlaps with specific date slots
+      // Check for overlaps with non-recurring slots
       const specificDateOverlap = availability.some(slot => {
-        if (!slot.is_recurring && slot.specific_date === specificDate) {
-          return (
-            (startTime >= slot.start_time && startTime < slot.end_time) ||
-            (endTime > slot.start_time && endTime <= slot.end_time) ||
-            (startTime <= slot.start_time && endTime >= slot.end_time)
-          );
-        }
-        return false;
+        if (slot.recurrence !== null) return false;
+        
+        // For one-time slots, compare the dates
+        const slotStart = new Date(slot.start_time);
+        const slotEnd = new Date(slot.end_time);
+        const newStart = new Date(start_time);
+        const newEnd = new Date(end_time);
+        
+        // Check for date and time overlap
+        return (
+          (newStart >= slotStart && newStart < slotEnd) ||
+          (newEnd > slotStart && newEnd <= slotEnd) ||
+          (newStart <= slotStart && newEnd >= slotEnd)
+        );
       });
       
       if (specificDateOverlap) return true;
       
-      // Also check for overlaps with recurring slots for the same day of week
-      const dayOfWeekForSpecificDate = new Date(specificDate).getDay();
+      // Also check for overlaps with recurring slots on this day of week
+      const dayOfWeekForDate = new Date(start_time).getDay() as DayOfWeek;
+      
       return availability.some(slot => {
-        if (slot.is_recurring && slot.day_of_week === dayOfWeekForSpecificDate) {
-          return (
-            (startTime >= slot.start_time && startTime < slot.end_time) ||
-            (endTime > slot.start_time && endTime <= slot.end_time) ||
-            (startTime <= slot.start_time && endTime >= slot.end_time)
-          );
-        }
-        return false;
+        if (!slot.recurrence) return false;
+        
+        const daysInSlot = getDaysOfWeekFromRecurrence(slot.recurrence);
+        if (!daysInSlot.includes(dayOfWeekForDate)) return false;
+        
+        // Extract the time parts for comparison
+        const slotStartTime = slot.start_time.includes('T') ? 
+          slot.start_time.split('T')[1].substring(0, 5) : 
+          slot.start_time;
+        
+        const slotEndTime = slot.end_time.includes('T') ? 
+          slot.end_time.split('T')[1].substring(0, 5) : 
+          slot.end_time;
+        
+        const newStartTime = start_time.includes('T') ? 
+          start_time.split('T')[1].substring(0, 5) : 
+          start_time;
+        
+        const newEndTime = end_time.includes('T') ? 
+          end_time.split('T')[1].substring(0, 5) : 
+          end_time;
+        
+        // Convert times to minutes for comparison
+        const slotStart = timeToMinutes(slotStartTime);
+        const slotEnd = timeToMinutes(slotEndTime);
+        const newStart = timeToMinutes(newStartTime);
+        const newEnd = timeToMinutes(newEndTime);
+        
+        // Check time overlap
+        return (
+          (newStart >= slotStart && newStart < slotEnd) ||
+          (newEnd > slotStart && newEnd <= slotEnd) ||
+          (newStart <= slotStart && newEnd >= slotEnd)
+        );
       });
     }
     
@@ -249,6 +320,8 @@ export function useTherapistAvailability() {
     addAvailability,
     deleteAvailability,
     checkForOverlaps,
-    refreshAvailability: fetchAvailability,
+    isRecurring,
+    getDaysOfWeek,
+    fetchAvailability,
   };
 } 

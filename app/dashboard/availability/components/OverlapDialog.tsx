@@ -50,6 +50,7 @@ const OverlapDialog = ({
   onCancel,
   onConfirm,
 }: OverlapDialogProps) => {
+  console.log('day', day);
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -62,7 +63,7 @@ const OverlapDialog = ({
         
         <div className="py-4">
           <p className="mb-4">
-            Your new availability for <span className="font-semibold">{day}</span> overlaps with an existing time slot:
+            Your new availability for <span className="font-semibold">{day.split(',')[0]}</span> overlaps with an existing time slot:
           </p>
           
           <div className="space-y-3 mb-6">

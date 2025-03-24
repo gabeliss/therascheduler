@@ -32,7 +32,7 @@ export function useTherapistProfile() {
       
       // Query the database for the therapist profile
       const { data: profiles, error: queryError } = await supabase
-        .from('therapist_profiles')
+        .from('therapists')
         .select('*')
         .eq('user_id', user.id);
       
@@ -49,7 +49,7 @@ export function useTherapistProfile() {
       
       // If no profile found by user_id, try email query as fallback
       const { data: emailProfiles, error: emailError } = await supabase
-        .from('therapist_profiles')
+        .from('therapists')
         .select('*')
         .eq('email', user.email);
       
@@ -62,7 +62,7 @@ export function useTherapistProfile() {
         // Try to update the user_id in the background
         try {
           const { error: updateError } = await supabase
-            .from('therapist_profiles')
+            .from('therapists')
             .update({ user_id: user.id })
             .eq('id', emailProfiles[0].id);
           
@@ -80,14 +80,17 @@ export function useTherapistProfile() {
       }
       
       // If no profile found, try to create one using the database function
-      const { data: newProfile, error: createError } = await supabase.rpc(
-        'create_therapist_profile_for_user',
-        {
-          p_user_id: user.id,
-          p_email: user.email,
-          p_name: user.user_metadata?.name || user.email?.split('@')[0],
-        }
-      );
+      const { data: newProfile, error: createError } = await supabase
+        .from('therapists')
+        .insert([
+          {
+            user_id: user.id,
+            email: user.email,
+            name: user.user_metadata?.name || user.email?.split('@')[0],
+          }
+        ])
+        .select()
+        .single();
       
       if (createError) {
         console.error('Error creating profile:', createError);
@@ -97,25 +100,16 @@ export function useTherapistProfile() {
       if (newProfile) {
         console.log('Created new profile:', newProfile);
         
-        // The profile was just created, use the data from the creation response
-        const profile = {
-          id: newProfile.profile_id,
-          user_id: user.id,
-          email: user.email,
-          name: user.user_metadata?.name || user.email?.split('@')[0],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        setTherapistProfile(profile as TherapistProfile);
+        // Use the returned profile data directly
+        setTherapistProfile(newProfile as TherapistProfile);
         setLoading(false);
         
         // Refresh the profile in the background after a short delay
         setTimeout(async () => {
           const { data: refreshedProfiles, error: refreshError } = await supabase
-            .from('therapist_profiles')
+            .from('therapists')
             .select('*')
-            .eq('id', newProfile.profile_id);
+            .eq('id', newProfile.id);
             
           if (!refreshError && refreshedProfiles && refreshedProfiles.length > 0) {
             console.log('Refreshed profile:', refreshedProfiles[0]);

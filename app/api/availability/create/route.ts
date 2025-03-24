@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { createRecurrenceString, DayOfWeek } from '@/app/utils/schema-converters';
 
 // Create a Supabase client with the service role key
 const supabaseAdmin = createClient(
@@ -16,121 +17,150 @@ const supabaseAdmin = createClient(
   }
 );
 
-// Helper function to validate time format (HH:MM)
-function isValidTimeFormat(time: string): boolean {
-  return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
+// Helper function to validate ISO timestamp
+function isValidISOTimestamp(timestamp: string): boolean {
+  if (!timestamp) return false;
+  const date = new Date(timestamp);
+  return !isNaN(date.getTime());
 }
 
-// Helper function to check if end time is after start time
+// Helper function to check if end time is after start time for ISO timestamps
 function isEndTimeAfterStartTime(startTime: string, endTime: string): boolean {
-  const [startHour, startMinute] = startTime.split(':').map(Number);
-  const [endHour, endMinute] = endTime.split(':').map(Number);
-  
-  if (endHour > startHour) return true;
-  if (endHour === startHour && endMinute > startMinute) return true;
-  return false;
-}
-
-// Helper function to convert time string to minutes since midnight
-function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(':').map(Number);
-  return hours * 60 + minutes;
-}
-
-// Helper function to check if two time slots overlap
-function doTimeSlotsOverlap(
-  slot1Start: string,
-  slot1End: string,
-  slot2Start: string,
-  slot2End: string
-): boolean {
-  const slot1StartMinutes = timeToMinutes(slot1Start);
-  const slot1EndMinutes = timeToMinutes(slot1End);
-  const slot2StartMinutes = timeToMinutes(slot2Start);
-  const slot2EndMinutes = timeToMinutes(slot2End);
-
-  // Check if either slot starts during the other slot
-  return (
-    (slot1StartMinutes < slot2EndMinutes && slot1StartMinutes >= slot2StartMinutes) ||
-    (slot2StartMinutes < slot1EndMinutes && slot2StartMinutes >= slot1StartMinutes)
-  );
+  const startDate = new Date(startTime);
+  const endDate = new Date(endTime);
+  return endDate > startDate;
 }
 
 // Helper function to check for overlapping availability slots
 async function checkForOverlappingSlots(
   therapistId: string,
-  dayOfWeek: number,
   startTime: string,
   endTime: string,
-  isRecurring: boolean,
-  specificDate?: string
+  recurrence: string | null
 ): Promise<boolean> {
-  // Query to find existing availability slots for the therapist on the same day
-  const query = supabaseAdmin
-    .from('therapist_availability')
+  // Query to find existing availability slots for the therapist
+  const { data: existingSlots, error } = await supabaseAdmin
+    .from('availability')
     .select('*')
     .eq('therapist_id', therapistId);
-
-  if (isRecurring) {
-    // For recurring slots, check other recurring slots on the same day of week
-    query.eq('day_of_week', dayOfWeek).eq('is_recurring', true);
-  } else if (specificDate) {
-    // For specific date slots, check other slots on the same specific date
-    query.eq('specific_date', specificDate).eq('is_recurring', false);
-  }
-
-  const { data: existingSlots, error } = await query;
 
   if (error || !existingSlots) {
     console.error('Error checking for overlapping slots:', error);
     return false; // Assume no overlap if there's an error
   }
 
-  // Check if any existing slot overlaps with the new slot
-  return existingSlots.some((slot) =>
-    doTimeSlotsOverlap(slot.start_time, slot.end_time, startTime, endTime)
-  );
+  const newStartTime = new Date(startTime);
+  const newEndTime = new Date(endTime);
+  const newDayOfWeek = newStartTime.getDay() as DayOfWeek;
+  const isRecurringSlot = recurrence !== null;
+
+  // Check for overlaps
+  return existingSlots.some((slot) => {
+    const slotStartTime = new Date(slot.start_time);
+    const slotEndTime = new Date(slot.end_time);
+    const isSlotRecurring = slot.recurrence !== null;
+    
+    // If they're different types (recurring vs non-recurring), no need to check
+    if (isRecurringSlot !== isSlotRecurring) return false;
+    
+    if (isRecurringSlot && isSlotRecurring) {
+      // For recurring slots, check if days match and times overlap
+      // Extract weekday pattern from recurrence strings
+      const slotRecurrence = slot.recurrence || '';
+      const newRecurrence = recurrence || '';
+      
+      // Parse days from recurrence patterns (weekly:Day1,Day2,...)
+      const getDaysFromRecurrence = (rec: string): number[] => {
+        if (!rec.startsWith('weekly:')) return [];
+        const days = rec.split(':')[1].split(',');
+        return days.map(day => {
+          switch(day) {
+            case 'Sun': return 0;
+            case 'Mon': return 1;
+            case 'Tue': return 2;
+            case 'Wed': return 3;
+            case 'Thu': return 4;
+            case 'Fri': return 5;
+            case 'Sat': return 6;
+            default: return -1;
+          }
+        }).filter(d => d !== -1);
+      };
+      
+      const slotDays = getDaysFromRecurrence(slotRecurrence);
+      const newDays = getDaysFromRecurrence(newRecurrence);
+      
+      // Check if any days overlap
+      const hasOverlappingDays = slotDays.some(day => newDays.includes(day));
+      if (!hasOverlappingDays) return false;
+      
+      // Check time overlap (just using hours and minutes)
+      const getTimeString = (date: Date): string => {
+        return date.toTimeString().substring(0, 5); // HH:MM
+      };
+      
+      const slotStartTimeStr = getTimeString(slotStartTime);
+      const slotEndTimeStr = getTimeString(slotEndTime);
+      const newStartTimeStr = getTimeString(newStartTime);
+      const newEndTimeStr = getTimeString(newEndTime);
+      
+      // Check time overlap using the same function
+      return (
+        (newStartTimeStr > slotStartTimeStr && newStartTimeStr < slotEndTimeStr) ||
+        (newEndTimeStr > slotStartTimeStr && newEndTimeStr <= slotEndTimeStr) ||
+        (newStartTimeStr <= slotStartTimeStr && newEndTimeStr >= slotEndTimeStr)
+      );
+      
+    } else {
+      // For one-time slots, check if date ranges overlap
+      return (
+        (newStartTime < slotEndTime && newStartTime >= slotStartTime) ||
+        (newEndTime > slotStartTime && newEndTime <= slotEndTime) ||
+        (newStartTime <= slotStartTime && newEndTime >= slotEndTime)
+      );
+    }
+  });
 }
 
 export async function POST(request: Request) {
   try {
-    const availabilityData = await request.json();
+    const requestBody = await request.json();
     
+    // Extract data with new schema field names
+    const { 
+      therapist_id, 
+      start_time, 
+      end_time, 
+      recurrence,
+      _selectedDays // Optional internal param to help build recurrence string
+    } = requestBody;
 
     // Validate required fields
-    if (!availabilityData.therapist_id || 
-        !availabilityData.day_of_week || 
-        !availabilityData.start_time || 
-        !availabilityData.end_time) {
-      console.error('Missing required fields:', availabilityData);
+    if (!therapist_id || !start_time || !end_time) {
+      console.error('Missing required fields:', requestBody);
       return NextResponse.json(
-        { message: 'Missing required fields' },
+        { message: 'Missing required fields: therapist_id, start_time, end_time' },
         { status: 400 }
       );
     }
 
-    // Set default value for is_available if not provided
-    if (availabilityData.is_available === undefined) {
-      availabilityData.is_available = true;
-    }
-
-    // Validate time format
-    if (!isValidTimeFormat(availabilityData.start_time) || !isValidTimeFormat(availabilityData.end_time)) {
-      console.error('Invalid time format:', { 
-        start_time: availabilityData.start_time, 
-        end_time: availabilityData.end_time 
+    // Validate timestamp format
+    if (!isValidISOTimestamp(start_time) || !isValidISOTimestamp(end_time)) {
+      console.error('Invalid timestamp format:', { 
+        start_time, 
+        end_time 
       });
       return NextResponse.json(
-        { message: 'Invalid time format. Expected format: HH:MM' },
+        { message: 'Invalid timestamp format. Expected ISO format.' },
         { status: 400 }
       );
     }
 
     // Validate end time is after start time
-    if (!isEndTimeAfterStartTime(availabilityData.start_time, availabilityData.end_time)) {
+    if (!isEndTimeAfterStartTime(start_time, end_time)) {
       console.error('End time must be after start time:', { 
-        start_time: availabilityData.start_time, 
-        end_time: availabilityData.end_time 
+        start_time, 
+        end_time 
       });
       return NextResponse.json(
         { message: 'End time must be after start time' },
@@ -140,14 +170,14 @@ export async function POST(request: Request) {
 
     // Check if therapist profile exists
     const { data: therapistProfile, error: profileError } = await supabaseAdmin
-      .from('therapist_profiles')
+      .from('therapists')
       .select('id')
-      .eq('id', availabilityData.therapist_id)
+      .eq('id', therapist_id)
       .single();
     
     if (profileError || !therapistProfile) {
       console.error('Therapist profile not found:', { 
-        therapist_id: availabilityData.therapist_id,
+        therapist_id,
         error: profileError 
       });
       return NextResponse.json(
@@ -156,23 +186,35 @@ export async function POST(request: Request) {
       );
     }
 
+    // Prepare final recurrence string if _selectedDays is provided
+    let finalRecurrence = recurrence;
+    if (_selectedDays && Array.isArray(_selectedDays) && _selectedDays.length > 0) {
+      finalRecurrence = createRecurrenceString(_selectedDays as DayOfWeek[]);
+    }
+
     // Check for overlapping slots
     const hasOverlap = await checkForOverlappingSlots(
-      availabilityData.therapist_id,
-      availabilityData.day_of_week,
-      availabilityData.start_time,
-      availabilityData.end_time,
-      availabilityData.is_recurring || false,
-      availabilityData.specific_date
+      therapist_id,
+      start_time,
+      end_time,
+      finalRecurrence
     );
 
     if (hasOverlap) {
-      console.error('Overlapping availability slot detected:', availabilityData);
+      console.error('Overlapping availability slot detected:', requestBody);
       return NextResponse.json(
         { message: 'This time slot overlaps with an existing availability slot. Please choose a different time or day.' },
         { status: 400 }
       );
     }
+
+    // Prepare data for insertion
+    const availabilityData = {
+      therapist_id,
+      start_time,
+      end_time,
+      recurrence: finalRecurrence
+    };
 
     // Insert availability using service role with a timeout
     const controller = new AbortController();
@@ -180,7 +222,7 @@ export async function POST(request: Request) {
     
     try {
       const { data, error } = await supabaseAdmin
-        .from('therapist_availability')
+        .from('availability')
         .insert([availabilityData])
         .select()
         .single();

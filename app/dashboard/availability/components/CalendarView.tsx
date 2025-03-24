@@ -6,6 +6,7 @@ import { HierarchicalAvailability, AvailabilityException } from '@/app/types';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
 // Import from the new modular structure
 import { formatTime as formatTimeUtil } from '../utils/time/format';
@@ -96,26 +97,43 @@ export default function CalendarView({ hierarchicalAvailability }: CalendarViewP
     // Format date as YYYY-MM-DD
     const formattedDate = format(date, 'yyyy-MM-dd');
     
-    // Find base availability for this day (either recurring or specific date)
-    const availableSlots = hierarchicalAvailability.filter(ha => 
-      // Check if this slot applies to this date
-      (ha.base.is_recurring && ha.base.day_of_week === dayOfWeek) || 
-      (!ha.base.is_recurring && ha.base.specific_date && ha.base.specific_date === formattedDate)
-    );
+    // Find base availability for this day (either recurring or date-specific based on start_time)
+    const availableSlots = hierarchicalAvailability.filter(ha => {
+      if (ha.base.recurrence) {
+        // Check if this recurring slot applies to this day of week
+        const daysOfWeek = getDaysOfWeekFromRecurrence(ha.base.recurrence);
+        return daysOfWeek.includes(dayOfWeek as DayOfWeek);
+      } else {
+        // For non-recurring slots, check if the date matches
+        const slotDate = new Date(ha.base.start_time);
+        const slotDateStr = format(slotDate, 'yyyy-MM-dd');
+        return slotDateStr === formattedDate;
+      }
+    });
     
     if (availableSlots.length === 0) return null;
     
     // Check each base availability
     for (const slot of availableSlots) {
-      const baseStart = slot.base.start_time;
-      const baseEnd = slot.base.end_time;
+      // Extract the time part of start_time and end_time
+      const baseStartTime = new Date(slot.base.start_time);
+      const baseEndTime = new Date(slot.base.end_time);
+      
+      const baseStart = format(baseStartTime, 'HH:mm');
+      const baseEnd = format(baseEndTime, 'HH:mm');
       
       // Check if time slot is within base availability
       if (timeSlot >= baseStart && timeSlot < baseEnd) {
         // Check if time slot is blocked by an exception
-        const exception = slot.exceptions.find(ex => 
-          timeSlot >= ex.start_time && timeSlot < ex.end_time
-        );
+        const exception = slot.exceptions.find(ex => {
+          const exStartTime = new Date(ex.start_time);
+          const exEndTime = new Date(ex.end_time);
+          
+          const exStart = format(exStartTime, 'HH:mm');
+          const exEnd = format(exEndTime, 'HH:mm');
+          
+          return timeSlot >= exStart && timeSlot < exEnd;
+        });
         
         if (exception) {
           return { type: 'exception', data: exception as AvailabilityException };

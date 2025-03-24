@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
     // Get therapist details
     const { data: therapist, error: therapistError } = await supabase
-      .from('therapist_profiles')
+      .from('therapists')
       .select('name, email')
       .eq('id', therapistId)
       .single();

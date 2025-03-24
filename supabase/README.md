@@ -6,8 +6,8 @@ This directory contains SQL migration scripts to set up the database schema for 
 
 The application uses the following tables:
 
-1. **client_profiles** - Stores information about clients
-2. **therapist_profiles** - Stores information about therapists
+1. **clients** - Stores information about clients
+2. **therapists** - Stores information about therapists
 3. **appointments** - Stores appointment information
 
 ## How to Apply Migrations
@@ -40,9 +40,9 @@ The application uses the following tables:
 
 ## Database Relationships
 
-- **appointments.therapist_id** references **therapist_profiles.id**
-- **appointments.client_id** references **client_profiles.id**
-- **therapist_profiles.user_id** and **client_profiles.user_id** reference **auth.users.id**
+- **appointments.therapist_id** references **therapists.id**
+- **appointments.client_id** references **clients.id**
+- **therapists.user_id** and **clients.user_id** reference **auth.users.id**
 
 ## Row Level Security (RLS)
 

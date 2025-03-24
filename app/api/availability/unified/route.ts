@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { UnifiedAvailabilityException } from '@/app/types/index';
+import { createRecurrenceString, getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+
+// Define TimeOff interface locally to avoid import errors
+interface TimeOff {
+  id: string;
+  therapist_id: string;
+  start_time: string;
+  end_time: string;
+  reason?: string;
+  recurrence: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export async function GET() {
   try {
@@ -16,7 +28,7 @@ export async function GET() {
     
     // Get the therapist profile
     const { data: therapistProfile, error: profileError } = await supabase
-      .from('therapist_profiles')
+      .from('therapists')
       .select('*')
       .eq('user_id', user.id)
       .single();
@@ -25,21 +37,19 @@ export async function GET() {
       return NextResponse.json({ error: 'Therapist profile not found' }, { status: 404 });
     }
     
-    // Get all unified exceptions for this therapist
-    const { data: exceptions, error: exceptionsError } = await supabase
+    // Get all time-off periods for this therapist
+    const { data: timeOffPeriods, error: timeOffError } = await supabase
       .from('time_off')
       .select('*')
       .eq('therapist_id', therapistProfile.id)
-      .order('is_recurring', { ascending: false }) // Recurring first
-      .order('day_of_week', { ascending: true })
-      .order('specific_date', { ascending: true })
+      .order('recurrence', { ascending: false }) // Recurring first
       .order('start_time', { ascending: true });
       
-    if (exceptionsError) {
-      return NextResponse.json({ error: exceptionsError.message }, { status: 500 });
+    if (timeOffError) {
+      return NextResponse.json({ error: timeOffError.message }, { status: 500 });
     }
     
-    return NextResponse.json({ data: exceptions });
+    return NextResponse.json({ data: timeOffPeriods });
   } catch (error) {
     console.error('Error in unified availability API:', error);
     return NextResponse.json(
@@ -62,7 +72,7 @@ export async function POST(request: NextRequest) {
     
     // Get the therapist profile
     const { data: therapistProfile, error: profileError } = await supabase
-      .from('therapist_profiles')
+      .from('therapists')
       .select('*')
       .eq('user_id', user.id)
       .single();
@@ -74,108 +84,67 @@ export async function POST(request: NextRequest) {
     // Parse the request body
     const { type, data } = await request.json();
     
-    if (type === 'exception') {
-      // Add unified exception
+    if (type === 'time_off') {
+      // Add time-off period
       const { 
-        startTime, 
-        endTime, 
+        start_time, 
+        end_time, 
         reason, 
-        isRecurring, 
-        dayOfWeek, 
-        startDate,
-        endDate,
-        isAllDay 
+        recurrence,
+        _selectedDays // Optional param to help build recurrence string
       } = data;
       
       // Validate required fields
-      if (!startTime || !endTime) {
+      if (!start_time || !end_time) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
       }
       
       // Validate time range
-      if (startTime >= endTime) {
+      if (new Date(start_time) >= new Date(end_time)) {
         return NextResponse.json({ error: 'End time must be after start time' }, { status: 400 });
       }
-      
-      // Validate recurring vs specific date
-      if (isRecurring && dayOfWeek === undefined) {
-        return NextResponse.json({ error: 'Day of week is required for recurring exceptions' }, { status: 400 });
+
+      // Build recurrence string if _selectedDays is provided
+      let finalRecurrence = recurrence;
+      if (_selectedDays && Array.isArray(_selectedDays) && _selectedDays.length > 0) {
+        finalRecurrence = createRecurrenceString(_selectedDays as DayOfWeek[]);
       }
       
-      if (!isRecurring) {
-        // For non-recurring exceptions, we need either specificDate (legacy) or both startDate and endDate
-        if ((!startDate || !endDate)) {
-          return NextResponse.json({ 
-            error: 'Either specificDate or both startDate and endDate are required for non-recurring exceptions' 
-          }, { status: 400 });
-        }
-        
-        // If both startDate and endDate are provided, validate that endDate is not before startDate
-        if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-          return NextResponse.json({ error: 'End date must be on or after start date' }, { status: 400 });
-        }
-      }
-      
-      // Check for overlapping exceptions
-      const { data: existingExceptions, error: checkError } = await supabase
+      // Check for overlapping time-off periods
+      const { data: existingTimeOffs, error: checkError } = await supabase
         .from('time_off')
         .select('*')
-        .eq('therapist_id', therapistProfile.id)
-        .eq('is_recurring', isRecurring);
+        .eq('therapist_id', therapistProfile.id);
         
       if (checkError) {
         return NextResponse.json({ error: checkError.message }, { status: 500 });
       }
       
-      // Add additional filters based on exception type
-      let filteredExceptions = existingExceptions || [];
-      if (isRecurring) {
-        filteredExceptions = filteredExceptions.filter(
-          (ex: UnifiedAvailabilityException) => ex.day_of_week === dayOfWeek
-        );
-      } else if (startDate && endDate) {
-        // For multi-day exceptions, check for any overlap in date ranges
-        filteredExceptions = filteredExceptions.filter(
-          (ex: UnifiedAvailabilityException) => {
-            // If the existing exception has start_date and end_date
-            if (ex.start_date && ex.end_date) {
-              // Check if date ranges overlap
-              return (
-                (startDate <= ex.end_date && endDate >= ex.start_date)
-              );
-            }
-            return false;
-          }
-        );
+      const isOverlapping = checkForOverlaps(
+        start_time,
+        end_time,
+        finalRecurrence,
+        existingTimeOffs || []
+      );
+      
+      if (isOverlapping) {
+        return NextResponse.json({ 
+          error: 'This time-off period overlaps with an existing one. Please choose a different time.' 
+        }, { status: 400 });
       }
       
-      // Check for overlaps
-      const overlaps = filteredExceptions.some((existing: UnifiedAvailabilityException) => {
-        return (
-          (startTime >= existing.start_time && startTime < existing.end_time) ||
-          (endTime > existing.start_time && endTime <= existing.end_time) ||
-          (startTime <= existing.start_time && endTime >= existing.end_time)
-        );
-      });
+      // Insert the time-off period
+      const timeOffData = {
+        therapist_id: therapistProfile.id,
+        start_time,
+        end_time,
+        reason,
+        recurrence: finalRecurrence
+      };
       
-      if (overlaps) {
-        return NextResponse.json({ error: 'Overlapping exception exists' }, { status: 400 });
-      }
-      
-      // Insert new exception
-      const { data: newException, error: insertError } = await supabase
+      const { data: insertedTimeOff, error: insertError } = await supabase
         .from('time_off')
-        .insert({
-          therapist_id: therapistProfile.id,
-          day_of_week: isRecurring ? dayOfWeek : null,
-          start_time: startTime,
-          end_time: endTime,
-          reason,
-          is_recurring: isRecurring,
-          start_date: (!isRecurring && startDate) ? startDate : null,
-          end_date: (!isRecurring && endDate) ? endDate : null,
-          is_all_day: isAllDay || false,
-        })
+        .insert([timeOffData])
         .select()
         .single();
         
@@ -183,74 +152,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: insertError.message }, { status: 500 });
       }
       
-      return NextResponse.json({ data: newException });
-    } else if (type === 'update') {
-      // Update exception
-      const { id, updates } = data;
-      
-      if (!id || !updates) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-      }
-      
-      // Validate the exception belongs to this therapist
-      const { data: existingException, error: checkError } = await supabase
-        .from('time_off')
-        .select('*')
-        .eq('id', id)
-        .eq('therapist_id', therapistProfile.id)
-        .single();
-        
-      if (checkError || !existingException) {
-        return NextResponse.json({ error: 'Exception not found' }, { status: 404 });
-      }
-      
-      // Update the exception
-      const { data: updatedException, error: updateError } = await supabase
-        .from('time_off')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-        
-      if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
-      }
-      
-      return NextResponse.json({ data: updatedException });
-    } else if (type === 'delete') {
-      // Delete exception
-      const { id } = data;
-      
-      if (!id) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-      }
-      
-      // Validate the exception belongs to this therapist
-      const { data: existingException, error: checkError } = await supabase
-        .from('time_off')
-        .select('*')
-        .eq('id', id)
-        .eq('therapist_id', therapistProfile.id)
-        .single();
-        
-      if (checkError || !existingException) {
-        return NextResponse.json({ error: 'Exception not found' }, { status: 404 });
-      }
-      
-      // Delete the exception
-      const { error: deleteError } = await supabase
-        .from('time_off')
-        .delete()
-        .eq('id', id);
-        
-      if (deleteError) {
-        return NextResponse.json({ error: deleteError.message }, { status: 500 });
-      }
-      
-      return NextResponse.json({ success: true });
-    } else {
-      return NextResponse.json({ error: 'Invalid request type' }, { status: 400 });
+      return NextResponse.json({ data: insertedTimeOff });
     }
+    
+    return NextResponse.json({ error: 'Invalid operation type' }, { status: 400 });
   } catch (error) {
     console.error('Error in unified availability API:', error);
     return NextResponse.json(
@@ -258,4 +163,173 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies });
+    
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    // Get the therapist profile
+    const { data: therapistProfile, error: profileError } = await supabase
+      .from('therapists')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+      
+    if (profileError || !therapistProfile) {
+      return NextResponse.json({ error: 'Therapist profile not found' }, { status: 404 });
+    }
+    
+    // Parse the request body
+    const { id, data: updateData } = await request.json();
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Missing ID for update' }, { status: 400 });
+    }
+    
+    // Only allow updating certain fields
+    const { start_time, end_time, reason, recurrence, _selectedDays } = updateData;
+    
+    // Build update object
+    const updates: Partial<TimeOff> = {};
+    if (start_time !== undefined) updates.start_time = start_time;
+    if (end_time !== undefined) updates.end_time = end_time;
+    if (reason !== undefined) updates.reason = reason;
+    
+    // Handle recurrence 
+    if (recurrence !== undefined) {
+      updates.recurrence = recurrence;
+    } else if (_selectedDays && Array.isArray(_selectedDays) && _selectedDays.length > 0) {
+      updates.recurrence = createRecurrenceString(_selectedDays as DayOfWeek[]);
+    }
+    
+    // Update the time-off period
+    const { data: updatedTimeOff, error: updateError } = await supabase
+      .from('time_off')
+      .update(updates)
+      .eq('id', id)
+      .eq('therapist_id', therapistProfile.id) // Ensure it belongs to this therapist
+      .select()
+      .single();
+      
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+    
+    return NextResponse.json({ data: updatedTimeOff });
+  } catch (error) {
+    console.error('Error in unified availability API:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'An unknown error occurred' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies });
+    const url = new URL(request.url);
+    const id = url.searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Missing ID for deletion' }, { status: 400 });
+    }
+    
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    // Get the therapist profile
+    const { data: therapistProfile, error: profileError } = await supabase
+      .from('therapists')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+      
+    if (profileError || !therapistProfile) {
+      return NextResponse.json({ error: 'Therapist profile not found' }, { status: 404 });
+    }
+    
+    // Delete the time-off period, ensuring it belongs to this therapist
+    const { error: deleteError } = await supabase
+      .from('time_off')
+      .delete()
+      .eq('id', id)
+      .eq('therapist_id', therapistProfile.id);
+      
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error in unified availability API:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'An unknown error occurred' },
+      { status: 500 }
+    );
+  }
+}
+
+// Helper function to check for overlaps between time-off periods
+function checkForOverlaps(
+  startTime: string,
+  endTime: string,
+  recurrence: string | null,
+  existingTimeOffs: TimeOff[]
+): boolean {
+  const startDate = new Date(startTime);
+  const endDate = new Date(endTime);
+  const dayOfWeek = startDate.getDay() as DayOfWeek;
+  const isRecurring = recurrence !== null;
+  
+  return existingTimeOffs.some(timeOff => {
+    const timeOffStart = new Date(timeOff.start_time);
+    const timeOffEnd = new Date(timeOff.end_time);
+    const isTimeOffRecurring = timeOff.recurrence !== null;
+    
+    // If they're different types (recurring vs non-recurring), no need to check
+    if (isRecurring !== isTimeOffRecurring) return false;
+    
+    if (isRecurring && isTimeOffRecurring) {
+      // For recurring time-off, check if days overlap
+      const timeOffDays = getDaysOfWeekFromRecurrence(timeOff.recurrence);
+      const newDays = getDaysOfWeekFromRecurrence(recurrence);
+      
+      const hasOverlappingDays = timeOffDays.some(day => newDays.includes(day));
+      if (!hasOverlappingDays) return false;
+      
+      // Check time overlap (just using hours and minutes)
+      const timeToMinutes = (date: Date): number => {
+        return date.getHours() * 60 + date.getMinutes();
+      };
+      
+      const timeOffStartMinutes = timeToMinutes(timeOffStart);
+      const timeOffEndMinutes = timeToMinutes(timeOffEnd);
+      const newStartMinutes = timeToMinutes(startDate);
+      const newEndMinutes = timeToMinutes(endDate);
+      
+      return (
+        (newStartMinutes >= timeOffStartMinutes && newStartMinutes < timeOffEndMinutes) ||
+        (newEndMinutes > timeOffStartMinutes && newEndMinutes <= timeOffEndMinutes) ||
+        (newStartMinutes <= timeOffStartMinutes && newEndMinutes >= timeOffEndMinutes)
+      );
+    } else {
+      // For one-time time-off, check if date ranges overlap
+      return (
+        (startDate <= timeOffEnd && endDate >= timeOffStart)
+      );
+    }
+  });
 } 

@@ -13,14 +13,15 @@ import { supabase } from '@/app/utils/supabase';
 import { Loader2, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
 
-// Same interfaces as the main booking page
+// Update interface to use new schema
 interface AvailableSlot {
   id: string;
   therapist_id: string;
   start_time: string;
   end_time: string;
-  day_of_week: number;
+  recurrence: string | null;
 }
 
 interface TherapistInfo {
@@ -77,7 +78,7 @@ export default function EmbeddedBookingPage() {
 
       try {
         const { data, error } = await supabase
-          .from('therapist_profiles')
+          .from('therapists')
           .select('id, name, email')
           .eq('id', therapistId)
           .single();
@@ -120,33 +121,33 @@ export default function EmbeddedBookingPage() {
       const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
       const formattedDate = format(date, 'yyyy-MM-dd');
       
-      // Fetch recurring availability for the day of week
-      const { data: recurringData, error: recurringError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('day_of_week', dayOfWeek)
-        .eq('is_recurring', true)
+      // Get all availability for this therapist
+      const { data: availabilityData, error: availabilityError } = await supabase
+        .from('availability')
+        .select('id, therapist_id, start_time, end_time, recurrence')
         .eq('therapist_id', therapist.id);
       
-      if (recurringError) throw recurringError;
+      if (availabilityError) throw availabilityError;
       
-      // Fetch specific availability for the selected date
-      const { data: specificData, error: specificError } = await supabase
-        .from('therapist_availability')
-        .select('id, therapist_id, start_time, end_time, day_of_week')
-        .eq('specific_date', formattedDate)
-        .eq('is_recurring', false)
-        .eq('therapist_id', therapist.id);
+      // Filter for recurring slots matching the day of week and one-time slots for this date
+      const filteredSlots = (availabilityData || []).filter(slot => {
+        if (slot.recurrence) {
+          // For recurring slots, check if this day of week is included in the recurrence pattern
+          const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+          return daysOfWeek.includes(dayOfWeek as DayOfWeek);
+        } else {
+          // For one-time slots, check if the date matches
+          const slotDate = new Date(slot.start_time);
+          const slotDateStr = format(slotDate, 'yyyy-MM-dd');
+          return slotDateStr === formattedDate;
+        }
+      });
       
-      if (specificError) throw specificError;
-      
-      // Combine both types of availability
-      const allSlots = [...(recurringData || []), ...(specificData || [])];
-      setAvailableSlots(allSlots);
+      setAvailableSlots(filteredSlots);
       
       // Generate time slots from availability
-      if (allSlots.length > 0) {
-        const slots = generateTimeSlots(allSlots, formattedDate);
+      if (filteredSlots.length > 0) {
+        const slots = generateTimeSlots(filteredSlots, formattedDate);
         setTimeSlots(slots);
       }
     } catch (err) {
@@ -158,15 +159,23 @@ export default function EmbeddedBookingPage() {
     }
   };
 
-  // Generate 30-minute time slots from availability ranges
+  // Update generateTimeSlots function to extract time from ISO timestamps
   const generateTimeSlots = (slots: AvailableSlot[], dateStr: string) => {
     const timeSlots: {time: string, formatted: string}[] = [];
     
     slots.forEach(slot => {
-      const startTime = parse(slot.start_time, 'HH:mm:ss', new Date());
-      const endTime = parse(slot.end_time, 'HH:mm:ss', new Date());
+      // Extract time parts from ISO timestamps
+      const startTime = new Date(slot.start_time);
+      const endTime = new Date(slot.end_time);
       
-      let currentTime = startTime;
+      // If the slot is a one-time slot for a specific date, make sure it's for today
+      if (!slot.recurrence) {
+        const slotDateStr = format(startTime, 'yyyy-MM-dd');
+        if (slotDateStr !== dateStr) return;
+      }
+      
+      // Generate 30-minute slots from start to end time
+      let currentTime = new Date(startTime);
       while (currentTime < endTime) {
         const timeStr = format(currentTime, 'HH:mm');
         timeSlots.push({

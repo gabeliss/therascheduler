@@ -3,7 +3,7 @@ import { timeToMinutes } from '@/app/dashboard/availability/utils/time/calculati
 import { minutesToTime } from '@/app/dashboard/availability/utils/time/additional';
 import { BaseAvailabilityFormValues } from '@/app/dashboard/availability/utils/schemas';
 import { TherapistAvailability } from './use-therapist-availability';
-import { UnifiedAvailabilityException } from '@/app/types/index';
+import { TimeOff } from '@/app/types/index';
 
 interface OverlapState {
   isOpen: boolean;
@@ -83,13 +83,13 @@ export function useAvailabilityOperations() {
   // Handle overlap detection for time-off
   const handleTimeOffOverlap = (
     data: any,
-    overlappingExceptions: UnifiedAvailabilityException[]
+    overlappingTimeOffs: TimeOff[]
   ) => {
     setOverlapState({
       isOpen: true,
       type: 'time-off',
       data,
-      conflictingItems: overlappingExceptions,
+      conflictingItems: overlappingTimeOffs,
       action: 'add',
     });
   };

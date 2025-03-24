@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/app/utils/supabase';
 import { Appointment } from '@/app/types';
-import { UnifiedAvailabilityException } from '@/app/types/index';
 import { useTherapistProfile } from './use-therapist-profile';
 import { format, parseISO, isWithinInterval, isSameDay, areIntervalsOverlapping } from 'date-fns';
 import { timeToMinutes } from '@/app/dashboard/availability/utils/time/calculations';
 import { sendAppointmentStatusNotification } from '@/app/utils/email-service';
+import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+
+// Define TimeOff interface locally
+interface TimeOff {
+  id: string;
+  therapist_id: string;
+  start_time: string;
+  end_time: string;
+  reason?: string;
+  recurrence: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 // Define conflict types
 export interface AvailabilityConflict {
@@ -16,7 +28,7 @@ export interface AvailabilityConflict {
 
 export interface TimeOffConflict {
   type: 'time_off';
-  exception: UnifiedAvailabilityException;
+  timeOff: TimeOff;
   message: string;
   severity: 'high' | 'medium' | 'low';
 }
@@ -60,7 +72,7 @@ export function useAppointments() {
         .from('appointments')
         .select(`
           *,
-          client:client_profiles(*)
+          client:clients(*)
         `)
         .eq('therapist_id', therapistProfile.id)
         .order('start_time', { ascending: true });
@@ -126,7 +138,7 @@ export function useAppointments() {
         .from('appointments')
         .select(`
           *,
-          client:client_profiles(*)
+          client:clients(*)
         `)
         .eq('id', id)
         .single();
@@ -185,53 +197,72 @@ export function useAppointments() {
         return null;
       }
       
-      const dayOfWeek = startDate.getDay(); // 0 = Sunday, 6 = Saturday
-      
-      // Format time safely
-      let timeOnly: string;
-      try {
-        timeOnly = format(startDate, 'HH:mm:ss');
-      } catch (error) {
-        console.error('Error formatting time in checkAvailabilityConflict:', error);
-        // Fallback to extracting time manually
-        const hours = startDate.getHours().toString().padStart(2, '0');
-        const minutes = startDate.getMinutes().toString().padStart(2, '0');
-        const seconds = startDate.getSeconds().toString().padStart(2, '0');
-        timeOnly = `${hours}:${minutes}:${seconds}`;
-      }
+      const dayOfWeek = startDate.getDay() as DayOfWeek; // 0 = Sunday, 6 = Saturday
       
       // Get therapist's availability for this day
       const { data: availabilityData, error } = await supabase
-        .from('therapist_availability')
+        .from('availability')
         .select('*')
-        .eq('therapist_id', therapistProfile.id)
-        .eq('is_recurring', true)
-        .eq('day_of_week', dayOfWeek);
+        .eq('therapist_id', therapistProfile.id);
       
       if (error) throw error;
       
+      // Filter availability to get recurring slots for this day of week
+      const recurringSlots = (availabilityData || []).filter(slot => {
+        if (!slot.recurrence) return false;
+        const daysOfWeek = getDaysOfWeekFromRecurrence(slot.recurrence);
+        return daysOfWeek.includes(dayOfWeek);
+      });
+      
       // If no availability is set for this day, it's a conflict
-      if (!availabilityData || availabilityData.length === 0) {
+      if (recurringSlots.length === 0) {
+        let dayName: string;
+        try {
+          dayName = format(startDate, 'EEEE');
+        } catch (error) {
+          dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
+        }
+        
         return {
           type: 'outside_hours',
-          message: `You don't have any availability set for ${format(startDate, 'EEEE')}s.`,
+          message: `You don't have any availability set for ${dayName}s.`,
           severity: 'high'
         };
       }
       
       // Check if the appointment time falls within any availability slot
-      const isWithinAvailability = availabilityData.some(slot => {
-        const slotStart = slot.start_time;
-        const slotEnd = slot.end_time;
+      const startDateTime = new Date(startTime);
+      const endDateTime = new Date(endTime);
+      
+      const isWithinAvailability = recurringSlots.some(slot => {
+        const slotStartTime = new Date(slot.start_time);
+        const slotEndTime = new Date(slot.end_time);
         
-        // Compare time strings
-        return timeOnly >= slotStart && timeOnly <= slotEnd;
+        // Extract just the time components for comparison
+        const apptStartMinutes = startDateTime.getHours() * 60 + startDateTime.getMinutes();
+        const apptEndMinutes = endDateTime.getHours() * 60 + endDateTime.getMinutes();
+        const slotStartMinutes = slotStartTime.getHours() * 60 + slotStartTime.getMinutes();
+        const slotEndMinutes = slotEndTime.getHours() * 60 + slotEndTime.getMinutes();
+        
+        // Check time overlap
+        return (
+          (apptStartMinutes >= slotStartMinutes && apptStartMinutes < slotEndMinutes) ||
+          (apptEndMinutes > slotStartMinutes && apptEndMinutes <= slotEndMinutes) ||
+          (apptStartMinutes <= slotStartMinutes && apptEndMinutes >= slotEndMinutes)
+        );
       });
       
       if (!isWithinAvailability) {
+        let dayName: string;
+        try {
+          dayName = format(startDate, 'EEEE');
+        } catch (error) {
+          dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
+        }
+        
         return {
           type: 'outside_hours',
-          message: `This appointment is outside your regular availability hours for ${format(startDate, 'EEEE')}s.`,
+          message: `This appointment is outside your regular availability hours for ${dayName}s.`,
           severity: 'medium'
         };
       }
@@ -272,7 +303,14 @@ export function useAppointments() {
         return null;
       }
       
-      const dayOfWeek = startDate.getDay();
+      // Check if the date is in the past
+      const currentDate = new Date();
+      if (startDate < currentDate) {
+        // If appointment is in the past, don't check for time-off conflicts
+        return null;
+      }
+      
+      const dayOfWeek = startDate.getDay() as DayOfWeek;
       
       // Format date safely
       let formattedDate: string;
@@ -287,111 +325,28 @@ export function useAppointments() {
         formattedDate = `${year}-${month}-${day}`;
       }
       
-      // Get all time-off exceptions
-      const { data: exceptionsData, error } = await supabase
+      // Get all time-off periods
+      const { data: timeOffData, error } = await supabase
         .from('time_off')
         .select('*')
         .eq('therapist_id', therapistProfile.id);
       
       if (error) throw error;
       
-      if (!exceptionsData || exceptionsData.length === 0) {
-        return null; // No time-off exceptions
+      if (!timeOffData || timeOffData.length === 0) {
+        return null; // No time-off periods
       }
       
       // Check for conflicts with time-off
-      for (const exception of exceptionsData) {
+      for (const timeOffPeriod of timeOffData) {
         // Check recurring time-off (e.g., lunch breaks)
-        if (exception.is_recurring && exception.day_of_week === dayOfWeek) {
-          const exceptionStart = exception.start_time;
-          const exceptionEnd = exception.end_time;
+        if (timeOffPeriod.recurrence) {
+          // Extract days of week from the recurrence pattern
+          const daysOfWeek = getDaysOfWeekFromRecurrence(timeOffPeriod.recurrence);
           
-          // Format appointment time safely
-          let appointmentTimeOnly: string;
-          let appointmentEndTimeOnly: string;
-          
-          try {
-            appointmentTimeOnly = format(startDate, 'HH:mm:ss');
-            appointmentEndTimeOnly = format(endDate, 'HH:mm:ss');
-          } catch (error) {
-            console.error('Error formatting appointment time in checkTimeOffConflict:', error);
-            // Fallback to manual formatting
-            appointmentTimeOnly = `${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}:00`;
-            appointmentEndTimeOnly = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}:00`;
-          }
-          
-          // Check if appointment time overlaps with recurring time-off
-          // Convert times to minutes for proper comparison
-          const apptStart = timeToMinutes(appointmentTimeOnly);
-          const apptEnd = timeToMinutes(appointmentEndTimeOnly);
-          const exStart = timeToMinutes(exceptionStart);
-          const exEnd = timeToMinutes(exceptionEnd);
-          
-          // Check for any overlap between the two time ranges
-          if (!(apptEnd <= exStart || apptStart >= exEnd)) {
-            let dayName: string;
-            try {
-              dayName = format(startDate, 'EEEE');
-            } catch (error) {
-              dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
-            }
-            
-            return {
-              type: 'time_off',
-              exception,
-              message: `This appointment conflicts with your recurring time-off on ${dayName}s${exception.reason ? ` (${exception.reason})` : ''}.`,
-              severity: 'high'
-            };
-          }
-        }
-        // Check specific date or multi-day time-off
-        else if (!exception.is_recurring && exception.start_date && exception.end_date) {
-          let exceptionStartDate: Date;
-          let exceptionEndDate: Date;
-          
-          try {
-            exceptionStartDate = new Date(exception.start_date);
-            exceptionEndDate = new Date(exception.end_date);
-            
-            // Check if dates are valid
-            if (isNaN(exceptionStartDate.getTime()) || isNaN(exceptionEndDate.getTime())) {
-              console.error('Invalid exception date(s):', { start: exception.start_date, end: exception.end_date });
-              continue; // Skip this exception
-            }
-          } catch (error) {
-            console.error('Error parsing exception dates:', error);
-            continue; // Skip this exception
-          }
-          
-          // Check if appointment date falls within time-off period
-          if (
-            (startDate >= exceptionStartDate && startDate <= exceptionEndDate) ||
-            (endDate >= exceptionStartDate && endDate <= exceptionEndDate)
-          ) {
-            // For all-day time-off, it's automatically a conflict
-            if (exception.is_all_day) {
-              let formattedStartDate: string;
-              let formattedEndDate: string;
-              
-              try {
-                formattedStartDate = format(exceptionStartDate, 'MMM d, yyyy');
-                formattedEndDate = format(exceptionEndDate, 'MMM d, yyyy');
-              } catch (error) {
-                console.error('Error formatting exception dates:', error);
-                // Fallback to simple formatting
-                formattedStartDate = exceptionStartDate.toLocaleDateString();
-                formattedEndDate = exceptionEndDate.toLocaleDateString();
-              }
-              
-              return {
-                type: 'time_off',
-                exception,
-                message: `This appointment conflicts with your time-off from ${formattedStartDate} to ${formattedEndDate}${exception.reason ? ` (${exception.reason})` : ''}.`,
-                severity: 'high'
-              };
-            }
-            
-            // For time-specific time-off, check time overlap
+          // Check if the appointment day is in the recurring pattern
+          if (daysOfWeek.includes(dayOfWeek)) {
+            // Format appointment time safely
             let appointmentTimeOnly: string;
             let appointmentEndTimeOnly: string;
             
@@ -405,38 +360,98 @@ export function useAppointments() {
               appointmentEndTimeOnly = `${endDate.getHours().toString().padStart(2, '0')}:${endDate.getMinutes().toString().padStart(2, '0')}:00`;
             }
             
+            // Extract time components from the time-off period
+            const timeOffStartTime = new Date(timeOffPeriod.start_time);
+            const timeOffEndTime = new Date(timeOffPeriod.end_time);
+            
+            const timeOffStartTimeOnly = format(timeOffStartTime, 'HH:mm:ss');
+            const timeOffEndTimeOnly = format(timeOffEndTime, 'HH:mm:ss');
+            
+            // Check if appointment time overlaps with recurring time-off
             // Convert times to minutes for proper comparison
             const apptStart = timeToMinutes(appointmentTimeOnly);
             const apptEnd = timeToMinutes(appointmentEndTimeOnly);
-            const exStart = timeToMinutes(exception.start_time);
-            const exEnd = timeToMinutes(exception.end_time);
+            const timeOffStart = timeToMinutes(timeOffStartTimeOnly);
+            const timeOffEnd = timeToMinutes(timeOffEndTimeOnly);
             
             // Check for any overlap between the two time ranges
-            if (!(apptEnd <= exStart || apptStart >= exEnd)) {
-              let formattedExceptionStartDate: string;
-              
+            if (!(apptEnd <= timeOffStart || apptStart >= timeOffEnd)) {
+              let dayName: string;
               try {
-                formattedExceptionStartDate = format(exceptionStartDate, 'MMM d, yyyy');
+                dayName = format(startDate, 'EEEE');
               } catch (error) {
-                console.error('Error formatting exception start date:', error);
-                formattedExceptionStartDate = exceptionStartDate.toLocaleDateString();
+                dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
               }
               
               return {
                 type: 'time_off',
-                exception,
-                message: `This appointment conflicts with your time-off on ${formattedExceptionStartDate}${exception.reason ? ` (${exception.reason})` : ''}.`,
-                severity: 'high'
+                timeOff: timeOffPeriod,
+                message: `This appointment conflicts with your recurring time-off on ${dayName}s${timeOffPeriod.reason ? ` (${timeOffPeriod.reason})` : ''}.`,
+                severity: 'medium'
               };
             }
           }
         }
+        // Check specific date (non-recurring) time-off
+        else if (!timeOffPeriod.recurrence) {
+          // Parse ISO timestamps to get dates
+          const timeOffStartDate = new Date(timeOffPeriod.start_time);
+          const timeOffEndDate = new Date(timeOffPeriod.end_time);
+          
+          // Check if dates are valid
+          if (isNaN(timeOffStartDate.getTime()) || isNaN(timeOffEndDate.getTime())) {
+            console.error('Invalid time-off date(s):', { 
+              start: timeOffPeriod.start_time, 
+              end: timeOffPeriod.end_time 
+            });
+            continue; // Skip this time-off
+          }
+          
+          // Check if appointment time overlaps with the time-off period
+          const appointmentInterval = {
+            start: startDate,
+            end: endDate
+          };
+          
+          const timeOffInterval = {
+            start: timeOffStartDate,
+            end: timeOffEndDate
+          };
+          
+          if (areIntervalsOverlapping(appointmentInterval, timeOffInterval)) {
+            let formattedStartDate: string;
+            let formattedEndDate: string;
+            
+            try {
+              formattedStartDate = format(timeOffStartDate, 'MMM d, yyyy');
+              formattedEndDate = format(timeOffEndDate, 'MMM d, yyyy');
+            } catch (error) {
+              console.error('Error formatting time-off dates:', error);
+              // Fallback to simple formatting
+              formattedStartDate = timeOffStartDate.toLocaleDateString();
+              formattedEndDate = timeOffEndDate.toLocaleDateString();
+            }
+            
+            // Check if it's a single-day or multi-day time-off
+            const isSingleDay = isSameDay(timeOffStartDate, timeOffEndDate);
+            const dateRangeText = isSingleDay 
+              ? formattedStartDate 
+              : `${formattedStartDate} to ${formattedEndDate}`;
+              
+            return {
+              type: 'time_off',
+              timeOff: timeOffPeriod,
+              message: `This appointment conflicts with your time-off scheduled for ${dateRangeText}${timeOffPeriod.reason ? ` (${timeOffPeriod.reason})` : ''}.`,
+              severity: 'high'
+            };
+          }
+        }
       }
       
-      return null; // No conflict
-    } catch (err) {
-      console.error('Error checking time-off conflict:', err);
-      return null; // Return null on error to avoid blocking appointment creation
+      return null; // No conflicts found
+    } catch (error) {
+      console.error('Error in checkTimeOffConflict:', error);
+      return null;
     }
   }
 
@@ -515,7 +530,7 @@ export function useAppointments() {
     startTime: string,
     endTime: string,
     therapistId: string = '',
-    exceptions: UnifiedAvailabilityException[] = [],
+    timeOffPeriods: TimeOff[] = [],
     appointments: Appointment[] = []
   ): Promise<ConflictCheckResult> => {
     try {
@@ -530,24 +545,43 @@ export function useAppointments() {
         };
       }
       
+      // Check if the appointment is in the past and skip conflict checks if it is
+      try {
+        const appointmentStartTime = new Date(startTime);
+        const currentDate = new Date();
+        if (appointmentStartTime < currentDate) {
+          // Skip conflict checks for past appointments
+          return {
+            hasConflict: false,
+            availabilityConflict: null,
+            timeOffConflict: null,
+            appointmentConflict: null
+          };
+        }
+      } catch (error) {
+        console.error('Error checking if appointment is in the past:', error);
+        // Continue with conflict checks if there's an error parsing dates
+      }
+      
       // Log the input values for debugging
       console.log('checkConflicts input values:', { startDate, startTime, endTime });
       
       // Use the therapist profile ID if not provided
       const effectiveTherapistId = therapistId || (therapistProfile?.id || '');
       
-      // Fetch exceptions if not provided
-      let effectiveExceptions = exceptions;
-      if (effectiveTherapistId && (!exceptions || exceptions.length === 0)) {
+      // Fetch time-off periods if not provided
+      let effectiveTimeOffPeriods = timeOffPeriods;
+      if (effectiveTherapistId && (!timeOffPeriods || timeOffPeriods.length === 0)) {
         try {
-          const { data: exceptionsData } = await supabase
+          const { data: timeOffData } = await supabase
             .from('time_off')
             .select('*')
             .eq('therapist_id', effectiveTherapistId);
           
-          effectiveExceptions = exceptionsData || [];
+          effectiveTimeOffPeriods = timeOffData || [];
         } catch (error) {
-          console.error('Error fetching exceptions:', error);
+          console.error('Error fetching time-off periods:', error);
+          effectiveTimeOffPeriods = [];
         }
       }
       
@@ -634,8 +668,8 @@ export function useAppointments() {
       // Check for conflicts if not overriding time-off
       if (!overrideTimeOff) {
         try {
-          // Fetch time-off exceptions for the therapist
-          const { data: exceptionsData } = await supabase
+          // Fetch time-off periods for the therapist
+          const { data: timeOffData } = await supabase
             .from('time_off')
             .select('*')
             .eq('therapist_id', appointmentData.therapist_id || therapistProfile?.id || '');
@@ -652,7 +686,7 @@ export function useAppointments() {
             startTimeStr,
             endTimeStr,
             appointmentData.therapist_id || therapistProfile?.id || '',
-            exceptionsData || [],
+            timeOffData || [],
             existingAppointments || []
           );
           
