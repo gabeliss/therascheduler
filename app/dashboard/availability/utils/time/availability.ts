@@ -42,7 +42,7 @@ export function getAvailabilityForDate(
   const formattedDate = format(date, 'yyyy-MM-dd');
   
   // Get specific date availability
-  const specificDateAvailability = availability.filter(slot => {
+  const nonRecurringAvailability = availability.filter(slot => {
     if (slot.recurrence) return false; // Skip recurring slots
     
     // Extract date from start_time for one-time slots
@@ -52,8 +52,8 @@ export function getAvailabilityForDate(
   });
   
   // Get recurring availability if needed
-  let dayAvailability = specificDateAvailability;
-  if (specificDateAvailability.length === 0) {
+  let dayAvailability = nonRecurringAvailability;
+  if (nonRecurringAvailability.length === 0) {
     dayAvailability = availability.filter(slot => {
       if (!slot.recurrence) return false;
       
@@ -66,7 +66,7 @@ export function getAvailabilityForDate(
   }
   
   // Get specific date time-off periods
-  const specificDateTimeOff = timeOffPeriods.filter(timeOff => {
+  const nonRecurringTimeOff = timeOffPeriods.filter(timeOff => {
     if (timeOff.recurrence) return false;
     
     // For one-time time-off, check if this date falls within the start and end time
@@ -97,7 +97,7 @@ export function getAvailabilityForDate(
   });
   
   // Combine time-off periods
-  const dayTimeOffPeriods = [...specificDateTimeOff, ...recurringTimeOff];
+  const dayTimeOffPeriods = [...nonRecurringTimeOff, ...recurringTimeOff];
   
   // Filter appointments for this date
   const dayAppointments = appointments.filter(appointment => {

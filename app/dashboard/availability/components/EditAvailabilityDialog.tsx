@@ -44,10 +44,60 @@ const EditAvailabilityDialog = ({
   useEffect(() => {
     if (availability) {
       console.log('EditAvailabilityDialog - availability changed:', availability);
-      console.log('Setting start time to:', availability.start_time);
-      console.log('Setting end time to:', availability.end_time);
-      setStartTime(availability.start_time);
-      setEndTime(availability.end_time);
+      
+      // Extract the time portions from ISO timestamps
+      let startTimeValue = '';
+      let endTimeValue = '';
+      
+      if (typeof availability.start_time === 'string') {
+        if (availability.start_time.includes('T')) {
+          // Extract HH:MM from ISO timestamp
+          const match = availability.start_time.match(/T(\d{2}:\d{2})/);
+          if (match && match[1]) {
+            startTimeValue = match[1];
+          } else {
+            // Fallback: just use the first 5 chars after T
+            startTimeValue = availability.start_time.split('T')[1]?.substring(0, 5) || '09:00';
+          }
+        } else {
+          // If it's already just a time string
+          startTimeValue = availability.start_time.substring(0, 5);
+        }
+      }
+      
+      if (typeof availability.end_time === 'string') {
+        if (availability.end_time.includes('T')) {
+          // Extract HH:MM from ISO timestamp
+          const match = availability.end_time.match(/T(\d{2}:\d{2})/);
+          if (match && match[1]) {
+            endTimeValue = match[1];
+          } else {
+            // Fallback: just use the first 5 chars after T
+            endTimeValue = availability.end_time.split('T')[1]?.substring(0, 5) || '17:00';
+          }
+        } else {
+          // If it's already just a time string
+          endTimeValue = availability.end_time.substring(0, 5);
+        }
+      }
+      
+      console.log('Setting extracted start time to:', startTimeValue);
+      console.log('Setting extracted end time to:', endTimeValue);
+      
+      // Validate and set times
+      if (startTimeValue && startTimeValue.match(/^\d{2}:\d{2}$/)) {
+        setStartTime(startTimeValue);
+      } else {
+        console.warn('Invalid start time format, using default:', availability.start_time);
+        setStartTime('09:00');
+      }
+      
+      if (endTimeValue && endTimeValue.match(/^\d{2}:\d{2}$/)) {
+        setEndTime(endTimeValue);
+      } else {
+        console.warn('Invalid end time format, using default:', availability.end_time);
+        setEndTime('17:00');
+      }
     }
   }, [availability]);
 

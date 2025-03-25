@@ -48,25 +48,21 @@ import { checkTimeOffAppointmentClash } from '../utils/appointment-utils';
 interface UnifiedExceptionDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: ExceptionFormValues & { start_time?: string, end_time?: string }) => Promise<void>;
-  specificDate?: Date; // Still needed for backward compatibility with calling components
+  onSubmit: (data: ExceptionFormValues & { start_time: string, end_time: string }) => Promise<void>;
   selectedDate?: Date | null;
 }
 
 const UnifiedExceptionDialog = ({ 
   isOpen, 
   onOpenChange, 
-  specificDate,
   onSubmit,
   selectedDate: externalSelectedDate
 }: UnifiedExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useRecurrence, setUseRecurrence] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(specificDate || externalSelectedDate || undefined);
-  const [selectedDay, setSelectedDay] = useState<number | undefined>(
-    specificDate ? specificDate.getDay() : undefined
-  );
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(externalSelectedDate || undefined);
+  const [selectedDay, setSelectedDay] = useState<number | undefined>(undefined);
   const [appointmentClashError, setAppointmentClashError] = useState<string | null>(null);
   
   // For now, we're always creating new blocks, not editing
@@ -113,19 +109,19 @@ const UnifiedExceptionDialog = ({
       form.reset();
       setError(null);
       setUseRecurrence(false);
-      setSelectedDay(specificDate ? specificDate.getDay() : undefined);
+      setSelectedDay(undefined);
     }
-  }, [isOpen, form, specificDate]);
+  }, [isOpen, form]);
 
-  // Update state when dialog opens/closes or specificDate changes
+  // Update state when dialog opens/closes
   useEffect(() => {
     if (isOpen) {
       setError(null);
       setUseRecurrence(false);
-      setSelectedDate(specificDate || externalSelectedDate || undefined);
-      setSelectedDay(specificDate ? specificDate.getDay() : undefined);
+      setSelectedDate(externalSelectedDate || undefined);
+      setSelectedDay(undefined);
     }
-  }, [isOpen, specificDate, externalSelectedDate]);
+  }, [isOpen, externalSelectedDate]);
 
   // Check for appointment clashes when form values change
   useEffect(() => {
@@ -153,10 +149,6 @@ const UnifiedExceptionDialog = ({
     
     if (selectedDate) {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      start_time = `${dateStr}T${startTime}:00`;
-      end_time = `${dateStr}T${endTime}:00`;
-    } else if (specificDate) {
-      const dateStr = format(specificDate, 'yyyy-MM-dd');
       start_time = `${dateStr}T${startTime}:00`;
       end_time = `${dateStr}T${endTime}:00`;
     } else {
@@ -194,7 +186,7 @@ const UnifiedExceptionDialog = ({
       }
       
       // Validate that we have either a selected date or a day of week
-      if (!useRecurrence && !specificDate && !selectedDate) {
+      if (!useRecurrence && !selectedDate) {
         setError('Please pick a specific date');
         setIsSubmitting(false);
         return;
@@ -216,10 +208,6 @@ const UnifiedExceptionDialog = ({
       
       if (!useRecurrence && selectedDate) {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
-        start_time = `${dateStr}T${data.startTime}:00`;
-        end_time = `${dateStr}T${data.endTime}:00`;
-      } else if (!useRecurrence && specificDate) {
-        const dateStr = format(specificDate, 'yyyy-MM-dd');
         start_time = `${dateStr}T${data.startTime}:00`;
         end_time = `${dateStr}T${data.endTime}:00`;
       } else {
@@ -252,7 +240,7 @@ const UnifiedExceptionDialog = ({
         skipToast: data.skipToast,
         skipOverlapCheck: data.skipOverlapCheck,
         isBatchOperation: data.isBatchOperation,
-        // Add these for API calls but they won't be in the form schema
+        // Add these for API calls
         start_time,
         end_time
       };
@@ -270,27 +258,15 @@ const UnifiedExceptionDialog = ({
     }
   };
 
-  // Generate title based on the date or recurring setting
-  const getDialogTitle = () => {
-    if (specificDate) {
-      const dayName = format(specificDate, 'EEEE');
-      const dateStr = format(specificDate, 'MMMM do');
-      return `Block Time for ${dayName}, ${dateStr}`;
-    }
-    return 'Add Time Off';
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEditing ? 'Edit Time Off' : 
-              specificDate 
-                ? `Block Time for ${format(specificDate, 'EEEE, MMMM d')}`
-                : useRecurrence 
-                  ? 'Block Weekly Time' 
-                  : 'Block Time Off'}
+              useRecurrence 
+                ? 'Block Weekly Time' 
+                : 'Block Time Off'}
           </DialogTitle>
           <DialogDescription>
             {isEditing ? 'Make changes to your time off.' : 'Add a new time off block to your schedule.'}
@@ -330,16 +306,11 @@ const UnifiedExceptionDialog = ({
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
                 Block Weekly
-                {specificDate && (
-                  <span className="text-gray-500 ml-1">
-                    (Every {format(specificDate, 'EEEE')})
-                  </span>
-                )}
               </label>
             </div>
             
-            {/* Day Selection for Recurring - Only show if specificDate is not provided */}
-            {useRecurrence && !specificDate && (
+            {/* Day Selection for Recurring */}
+            {useRecurrence && (
               <div className="space-y-2">
                 <FormLabel>Day of Week</FormLabel>
                 <Select
@@ -360,8 +331,8 @@ const UnifiedExceptionDialog = ({
               </div>
             )}
             
-            {/* Date Selection for Specific - Only show if specificDate is not provided */}
-            {!useRecurrence && !specificDate && (
+            {/* Date Selection for Specific */}
+            {!useRecurrence && (
               <div className="space-y-2">
                 <FormLabel>Date</FormLabel>
                 <div className="border rounded-md p-1">

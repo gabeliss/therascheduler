@@ -35,7 +35,7 @@ interface DialogManagerProps {
   availability: TherapistAvailability[];
   deleteAvailability: (id: string) => Promise<void>;
   onSubmitBase: (data: BaseAvailabilityFormValues, skipOverlapCheck?: boolean) => Promise<void>;
-  onSubmitUnifiedException: (data: ExceptionFormValues & { start_time?: string, end_time?: string }) => Promise<void>;
+  onSubmitUnifiedException: (data: ExceptionFormValues & { start_time: string, end_time: string }) => Promise<void>;
   handleDeleteException: (id: string) => Promise<void>;
   handleEditTimeOff: (timeOff: TimeOff) => void;
   handleEditAvailability: (availability: TherapistAvailability) => void;
@@ -44,9 +44,7 @@ interface DialogManagerProps {
     startTime: string, 
     endTime: string, 
     reason: string,
-    startDate?: string,
-    endDate?: string,
-    isAllDay?: boolean
+    recurrence: string | null
   ) => Promise<void>;
   handleSaveAvailability: (id: string, startTime: string, endTime: string) => Promise<void>;
   handleTimeOffOverlapConfirm: (action: 'replace' | 'merge') => Promise<void>;
@@ -88,7 +86,6 @@ const DialogManager: React.FC<DialogManagerProps> = ({
       <TimeOffManager
         isOpen={timeOffManagerDialog.isOpen}
         onOpenChange={(open) => open ? timeOffManagerDialog.openDialog() : timeOffManagerDialog.closeDialog()}
-        exceptions={availability}
         onDeleteException={handleDeleteException}
         onAddException={async (formData) => {
           try {

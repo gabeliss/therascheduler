@@ -5,7 +5,7 @@ import { BaseAvailabilityFormValues, ExceptionFormValues } from './schemas';
 import { TimeOff } from '@/app/types/index';
 import { formatDate } from './time/format';
 import { DAYS_OF_WEEK } from './time/types';
-import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-converters';
+import { getDaysOfWeekFromRecurrence, DayOfWeek, createRecurrenceString } from '@/app/utils/schema-converters';
 import { checkTimeOverlap } from './time/calculations';
 
 /**
@@ -74,45 +74,61 @@ export const handleBaseAvailabilitySubmit = async (
   try {
     // If it's a recurring (weekly) slot
     if (data.type === 'recurring' && data.days && data.days.length > 0) {
-      // Add each day separately
-      for (const day of data.days) {
-        // Skip days with overlaps if not explicitly overriding
-        if (!skipOverlapCheck) {
-          const dayOfWeek = parseInt(day);
-          
-          // Create recurrence string for this day
-          const recurrence = `weekly:${dayOfWeek}`;
-          
-          // Check for overlaps with existing availability
-          if (checkForOverlaps(data.startTime, data.endTime, recurrence)) {
-            // Store in overlapState for the overlap dialog
-            setOverlapState({
-              isOpen: true,
-              type: 'availability',
-              data,
-              conflictingItems: getConflictingItemsForDay(data.startTime, data.endTime, dayOfWeek, availability),
-              action: 'add'
-            });
-            return;
+      // Convert all day strings to their indices
+      const dayIndices = data.days.map(day => DAYS_OF_WEEK.indexOf(day) as DayOfWeek);
+      
+      // Skip overlap check if explicitly overriding
+      if (!skipOverlapCheck) {
+        // Create a combined recurrence string for all selected days
+        const recurrence = createRecurrenceString(dayIndices);
+        
+        // Check if any of the days have overlaps
+        let hasOverlap = false;
+        let overlapDay = '';
+        let conflictingItems: TherapistAvailability[] = [];
+        
+        for (const dayIndex of dayIndices) {
+          if (checkForOverlaps(data.startTime, data.endTime, createRecurrenceString([dayIndex]))) {
+            hasOverlap = true;
+            overlapDay = DAYS_OF_WEEK[dayIndex];
+            conflictingItems = getConflictingItemsForDay(
+              data.startTime, 
+              data.endTime, 
+              dayIndex, 
+              availability
+            );
+            break;
           }
         }
         
-        // Format the parameters for API call
-        const today = new Date().toISOString().split('T')[0];
-        const start_time = `${today}T${data.startTime}:00`;
-        const end_time = `${today}T${data.endTime}:00`;
-        
-        // Create recurrence string for this day
-        const recurrence = `weekly:${parseInt(day)}`;
-        
-        // Add the availability
-        await addAvailability({
-          start_time,
-          end_time,
-          recurrence,
-          type: 'availability'
-        } as any);
+        if (hasOverlap) {
+          // Store in overlapState for the overlap dialog
+          setOverlapState({
+            isOpen: true,
+            type: 'availability',
+            data,
+            conflictingItems,
+            action: 'add'
+          });
+          return;
+        }
       }
+      
+      // Format the parameters for API call
+      const today = new Date().toISOString().split('T')[0];
+      const start_time = `${today}T${data.startTime}:00`;
+      const end_time = `${today}T${data.endTime}:00`;
+      
+      // Create combined recurrence string for all selected days
+      const recurrence = createRecurrenceString(dayIndices);
+      
+      // Add the availability as a single entry with multiple days
+      await addAvailability({
+        start_time,
+        end_time,
+        recurrence,
+        type: 'availability'
+      } as any);
       
       toast({
         title: "Availability updated",
@@ -316,33 +332,25 @@ export const handleTimeOffSave = async (
   startTime: string, 
   endTime: string, 
   reason: string,
+  recurrence: string | null,
   addAvailability: (params: any) => Promise<any>,
   deleteAvailability: (id: string) => Promise<void>,
   availability: TherapistAvailability[],
-  closeDialog: () => void,
-  startDate?: string,
-  endDate?: string,
-  isAllDay?: boolean
+  closeDialog: () => void
 ) => {
   try {
-    // Create ISO timestamps
-    let start_time, end_time;
-    
-    if (startDate) {
-      start_time = `${startDate}T${isAllDay ? '00:00:00' : startTime}`;
-      end_time = `${endDate || startDate}T${isAllDay ? '23:59:59' : endTime}`;
-    } else {
-      // For recurring time-off, use today's date with the time
-      const today = new Date().toISOString().split('T')[0];
-      start_time = `${today}T${isAllDay ? '00:00:00' : startTime}`;
-      end_time = `${today}T${isAllDay ? '23:59:59' : endTime}`;
-    }
-    
     // Get the existing time-off
     const existingTimeOff = availability.find(a => a.id === id);
     if (!existingTimeOff) {
       throw new Error('Time off not found');
     }
+    
+    // Extract date part from existing time-off
+    const existingDate = existingTimeOff.start_time.split('T')[0];
+    
+    // Create ISO timestamps
+    const start_time = `${existingDate}T${startTime}:00`;
+    const end_time = `${existingDate}T${endTime}:00`;
     
     // Delete the old time-off
     await deleteAvailability(id);
@@ -352,7 +360,7 @@ export const handleTimeOffSave = async (
       start_time,
       end_time,
       reason,
-      recurrence: existingTimeOff.recurrence
+      recurrence: recurrence || existingTimeOff.recurrence
     } as any);
     
     toast({
@@ -392,13 +400,45 @@ export const handleAvailabilitySave = async (
       throw new Error('Availability not found');
     }
     
+    console.log('Updating availability with:', {
+      id,
+      startTime,
+      endTime,
+      existing: availabilityToUpdate
+    });
+    
+    // Extract date part from existing availability
+    let dateStr;
+    
+    if (typeof availabilityToUpdate.start_time === 'string' && availabilityToUpdate.start_time.includes('T')) {
+      dateStr = availabilityToUpdate.start_time.split('T')[0];
+    } else {
+      // Fall back to current date
+      dateStr = new Date().toISOString().split('T')[0];
+    }
+    
+    // Clean up time string inputs
+    const cleanStartTime = startTime.includes('T') 
+      ? startTime.split('T')[1].substring(0, 5) 
+      : startTime.substring(0, 5);
+      
+    const cleanEndTime = endTime.includes('T') 
+      ? endTime.split('T')[1].substring(0, 5) 
+      : endTime.substring(0, 5);
+    
+    // Create proper ISO timestamps  
+    const start_time = `${dateStr}T${cleanStartTime}:00`;
+    const end_time = `${dateStr}T${cleanEndTime}:00`;
+    
+    console.log('Final timestamps:', { start_time, end_time });
+    
     // Delete the old availability
     await deleteAvailability(id);
     
     // Add the updated availability
     await addAvailability({
-      start_time: startTime,
-      end_time: endTime,
+      start_time,
+      end_time,
       recurrence: availabilityToUpdate.recurrence
     } as any);
     

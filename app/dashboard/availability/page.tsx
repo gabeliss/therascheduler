@@ -106,22 +106,18 @@ export default function AvailabilityPage() {
     startTime: string, 
     endTime: string, 
     reason: string,
-    startDate?: string,
-    endDate?: string,
-    isAllDay?: boolean
+    recurrence: string | null
   ) => {
     return handleTimeOffSave(
       id,
       startTime,
       endTime,
       reason,
+      recurrence,
       addAvailability,
       deleteAvailability,
       availability,
-      editTimeOffDialog.closeDialog,
-      startDate,
-      endDate,
-      isAllDay
+      editTimeOffDialog.closeDialog
     );
   };
 

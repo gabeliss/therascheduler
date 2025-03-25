@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format, parseISO, isAfter } from 'date-fns';
+import { format } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -21,8 +21,7 @@ import { getDaysOfWeekFromRecurrence, DayOfWeek } from '@/app/utils/schema-conve
 
 // Import from the new modular structure
 import { TIME_OPTIONS, formatTime } from '../utils/time/format';
-import { validateTimeRange, timeToMinutes } from '../utils/time/calculations';
-import { Calendar } from '@/components/ui/calendar';
+import { validateTimeRange } from '../utils/time/calculations';
 import { Checkbox } from '@/components/ui/checkbox';
 import DateRangeSelector from './DateRangeSelector';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,7 +33,7 @@ interface EditTimeOffDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   exception: TimeOff | null;
-  onSave: (id: string, startTime: string, endTime: string, reason: string, startDate?: string, endDate?: string, isAllDay?: boolean) => Promise<void>;
+  onSave: (id: string, startTime: string, endTime: string, reason: string, recurrence: string | null) => Promise<void>;
 }
 
 const EditTimeOffDialog = ({
@@ -137,35 +136,33 @@ const EditTimeOffDialog = ({
     // Skip if appointments are still loading or no exception
     if (appointmentsLoading || !exception) return;
     
-    // Prepare data for clash check
-    let formattedStartDate, formattedEndDate;
+    // Create full ISO timestamps
+    let start_time: string, end_time: string;
+    let recurrence = exception.recurrence;
     
     if (!exception.recurrence && startDate && endDate) {
-      formattedStartDate = format(startDate, 'yyyy-MM-dd');
-      formattedEndDate = format(endDate, 'yyyy-MM-dd');
-    } else if (!exception.recurrence) {
+      const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+      const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+      
+      start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+      end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
+    } else {
+      // Use the existing date parts but updated time parts
       const startDateObj = new Date(exception.start_time);
       const endDateObj = new Date(exception.end_time);
-      formattedStartDate = format(startDateObj, 'yyyy-MM-dd');
-      formattedEndDate = format(endDateObj, 'yyyy-MM-dd');
-    }
-    
-    // Get day of week for recurring time-off
-    let dayOfWeek: number | undefined;
-    if (exception.recurrence) {
-      const daysOfWeek = getDaysOfWeekFromRecurrence(exception.recurrence);
-      dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : undefined;
+      
+      const formattedStartDate = format(startDateObj, 'yyyy-MM-dd');
+      const formattedEndDate = format(endDateObj, 'yyyy-MM-dd');
+      
+      start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+      end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
     }
     
     // Check for clashes
     const clash = checkTimeOffAppointmentClash({
-      startDate: formattedStartDate,
-      endDate: formattedEndDate,
-      startTime: `${startTime}`,
-      endTime: `${endTime}`,
-      isRecurring: !!exception.recurrence,
-      dayOfWeek,
-      isAllDay,
+      start_time,
+      end_time,
+      recurrence,
       appointments
     });
     
@@ -197,19 +194,23 @@ const EditTimeOffDialog = ({
           setIsSubmitting(false);
           return;
         }
-        
-        // Format dates as YYYY-MM-DD
+      }
+      
+      // Create ISO timestamps
+      let recurrence = exception.recurrence;
+      
+      if (!recurrence && startDate && endDate) {
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
-        // Check for appointment clashes
+        const start_time = `${formattedStartDate}T${isAllDay ? '00:00' : startTime}:00`;
+        const end_time = `${formattedEndDate}T${isAllDay ? '23:59' : endTime}:00`;
+        
+        // Check for clashes
         const clash = checkTimeOffAppointmentClash({
-          startDate: formattedStartDate,
-          endDate: formattedEndDate,
-          startTime,
-          endTime,
-          isRecurring: false,
-          isAllDay,
+          start_time,
+          end_time,
+          recurrence: null,
           appointments
         });
         
@@ -218,44 +219,10 @@ const EditTimeOffDialog = ({
           setIsSubmitting(false);
           return;
         }
-        
-        await onSave(
-          exception.id, 
-          startTime, 
-          endTime, 
-          reason, 
-          formattedStartDate, 
-          formattedEndDate,
-          isAllDay
-        );
-      } else {
-        // Get day of week for recurring time-off
-        let dayOfWeek: number | undefined;
-        if (exception.recurrence) {
-          const daysOfWeek = getDaysOfWeekFromRecurrence(exception.recurrence);
-          dayOfWeek = daysOfWeek.length > 0 ? daysOfWeek[0] : undefined;
-        }
-        
-        // For recurring exceptions, check for appointment clashes
-        const clash = checkTimeOffAppointmentClash({
-          startTime,
-          endTime,
-          isRecurring: true,
-          dayOfWeek,
-          isAllDay,
-          appointments
-        });
-        
-        if (clash) {
-          setError(clash.message);
-          setIsSubmitting(false);
-          return;
-        }
-        
-        // For recurring exceptions, just pass the time and reason
-        await onSave(exception.id, startTime, endTime, reason);
       }
       
+      // Save changes
+      await onSave(exception.id, startTime, endTime, reason, recurrence);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -371,7 +338,7 @@ const EditTimeOffDialog = ({
               <Select
                 value={startTime}
                 onValueChange={setStartTime}
-                defaultValue={exception?.start_time || '09:00'}
+                defaultValue={extractTimeFromTimestamp(exception.start_time)}
                 disabled={isAllDay}
               >
                 <SelectTrigger>
@@ -393,7 +360,7 @@ const EditTimeOffDialog = ({
               <Select
                 value={endTime}
                 onValueChange={setEndTime}
-                defaultValue={exception?.end_time || '17:00'}
+                defaultValue={extractTimeFromTimestamp(exception.end_time)}
                 disabled={isAllDay}
               >
                 <SelectTrigger>

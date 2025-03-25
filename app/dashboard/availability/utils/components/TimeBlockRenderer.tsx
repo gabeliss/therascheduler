@@ -52,7 +52,55 @@ export function TimeBlockRenderer({
 }: TimeBlockRendererProps) {
   // Format times for display
   const formatTimeDisplay = (timeString: string) => {
-    return format(new Date(`2000-01-01T${timeString}`), 'h:mm a');
+    try {
+      // Handle cases where the timeString is an ISO string (contains T) vs. just a time string (HH:MM)
+      let timeValue;
+      
+      if (timeString.includes('T')) {
+        // Extract time portion from ISO string (e.g., "2023-04-01T09:00:00" -> "09:00")
+        timeValue = timeString.split('T')[1].substring(0, 5);
+      } else {
+        // Just use the time string as is (e.g., "09:00")
+        timeValue = timeString.substring(0, 5);
+      }
+      
+      // Create a date object with a fixed date (2000-01-01) to avoid timezone issues
+      const date = new Date(`2000-01-01T${timeValue}`);
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid time value: ${timeValue}`);
+      }
+      
+      return format(date, 'h:mm a');
+    } catch (error) {
+      console.error('Error formatting time:', error, 'Original value:', timeString);
+      // Fallback to a basic formatting approach for robustness
+      try {
+        // Try to extract hours and minutes from the string
+        let hours = 0;
+        let minutes = 0;
+        
+        if (timeString.includes(':')) {
+          const parts = timeString.split(':');
+          hours = parseInt(parts[0], 10);
+          minutes = parseInt(parts[1], 10);
+        } else if (timeString.includes('T')) {
+          const timePart = timeString.split('T')[1];
+          const parts = timePart.split(':');
+          hours = parseInt(parts[0], 10);
+          minutes = parseInt(parts[1], 10);
+        }
+        
+        if (isNaN(hours) || isNaN(minutes)) {
+          return timeString; // Return original if parsing fails
+        }
+        
+        const period = hours >= 12 ? 'pm' : 'am';
+        const displayHours = hours % 12 || 12; // Convert 0 to 12 for 12 AM
+        return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+      } catch (e) {
+        return timeString; // Return original as last resort
+      }
+    }
   };
   
   // Wrapper for tooltip if enabled

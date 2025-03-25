@@ -19,6 +19,15 @@ export const formatTime = (time: string) => {
   if (!time) return '';
   
   try {
+    // First check if this is a full ISO timestamp with timezone info
+    if (time.includes('T') && time.includes('+')) {
+      // Extract just the time portion (HH:MM) from the ISO timestamp
+      const timeMatch = time.match(/T(\d{2}:\d{2})/);
+      if (timeMatch && timeMatch[1]) {
+        time = timeMatch[1]; // Use just the HH:MM portion
+      }
+    }
+    
     // Handle both HH:MM and HH:MM:SS formats
     const timeValue = time.includes(':') ? time.split(':').slice(0, 2).join(':') : time;
     
@@ -51,6 +60,29 @@ export const formatTime = (time: string) => {
     
     // Try to extract and format the time in a more basic way
     try {
+      // First check if this is an ISO timestamp
+      if (time.includes('T')) {
+        // Try to create a date object from the ISO string
+        const date = new Date(time);
+        if (!isNaN(date.getTime())) {
+          // Format using date-fns if possible
+          return format(date, 'h:mm a');
+        }
+        
+        // Alternative: extract hours and minutes from the ISO string
+        const match = time.match(/T(\d{2}):(\d{2})/);
+        if (match) {
+          const hours = parseInt(match[1], 10);
+          const minutes = parseInt(match[2], 10);
+          if (!isNaN(hours) && !isNaN(minutes)) {
+            const period = hours >= 12 ? 'pm' : 'am';
+            const displayHours = hours % 12 || 12;
+            return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+          }
+        }
+      }
+      
+      // Otherwise try to parse the time string directly
       const parts = time.split(':');
       if (parts.length >= 2) {
         const hours = parseInt(parts[0], 10);

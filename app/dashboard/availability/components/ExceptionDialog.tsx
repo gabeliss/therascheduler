@@ -32,10 +32,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ExceptionFormValues, refinedExceptionSchema } from '../utils/schemas';
 import { format } from 'date-fns';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 // Import from the new modular structure
 import { TIME_OPTIONS } from '../utils/time/format';
+import { validateTimeRange } from '../utils/time/calculations';
+import { createRecurrenceString, DayOfWeek } from '@/app/utils/schema-converters';
+import { Calendar } from '@/components/ui/calendar';
 
 interface ExceptionDialogProps {
   isOpen: boolean;
@@ -43,8 +45,8 @@ interface ExceptionDialogProps {
   baseId: string | null;
   baseStartTime: string;
   baseEndTime: string;
-  specificDate?: Date;
-  onSubmit: (data: ExceptionFormValues) => Promise<void>;
+  selectedDate?: Date;
+  onSubmit: (data: ExceptionFormValues & { start_time: string, end_time: string }) => Promise<void>;
 }
 
 const ExceptionDialog = ({ 
@@ -53,60 +55,48 @@ const ExceptionDialog = ({
   baseId, 
   baseStartTime, 
   baseEndTime,
-  specificDate,
+  selectedDate: externalSelectedDate,
   onSubmit 
 }: ExceptionDialogProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasOverlap, setHasOverlap] = useState(false);
-  const supabase = createClientComponentClient();
+  const [useRecurrence, setUseRecurrence] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(externalSelectedDate || undefined);
+  const [selectedDay, setSelectedDay] = useState<number | undefined>(undefined);
 
   const form = useForm<ExceptionFormValues>({
     resolver: zodResolver(refinedExceptionSchema),
     defaultValues: {
-      startTime: '12:00', // Default to 12:00 PM (noon)
-      endTime: '12:00',   // Default to 12:00 PM (noon)
+      startTime: baseStartTime || '12:00',
+      endTime: baseEndTime || '12:00',
       reason: '',
-      isRecurring: false,
+      recurrence: null
     },
   });
 
-  // Watch for changes to start/end time to check for overlaps
+  // Watch for changes to start/end time
   const startTime = form.watch('startTime');
   const endTime = form.watch('endTime');
-  const isRecurring = form.watch('isRecurring');
 
-  // Check for overlapping exceptions when times change
+  // Reset form when dialog is closed
   useEffect(() => {
-    const checkForOverlap = async () => {
-      if (!baseId || !startTime || !endTime) return;
-      
-      try {
-        // Get existing exceptions for this base availability
-        const { data: exceptions, error } = await supabase
-          .from('availability_exceptions')
-          .select('*')
-          .eq('base_availability_id', baseId);
-          
-        if (error) throw error;
-        
-        // Check if any existing exceptions overlap with the selected time range
-        const overlaps = (exceptions || []).some((ex: any) => {
-          return (
-            (startTime >= ex.start_time && startTime < ex.end_time) ||
-            (endTime > ex.start_time && endTime <= ex.end_time) ||
-            (startTime <= ex.start_time && endTime >= ex.end_time)
-          );
-        });
-        
-        setHasOverlap(overlaps);
-      } catch (err) {
-        console.error('Error checking for overlaps:', err);
-      }
-    };
-    
-    checkForOverlap();
-  }, [baseId, startTime, endTime, supabase]);
+    if (!isOpen) {
+      form.reset();
+      setError(null);
+      setUseRecurrence(false);
+      setSelectedDay(undefined);
+    }
+  }, [isOpen, form]);
+
+  // Update state when dialog opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+      setUseRecurrence(false);
+      setSelectedDate(externalSelectedDate || undefined);
+      setSelectedDay(undefined);
+    }
+  }, [isOpen, externalSelectedDate]);
 
   const handleSubmit = async (data: ExceptionFormValues) => {
     if (!baseId) {
@@ -114,17 +104,57 @@ const ExceptionDialog = ({
       return;
     }
 
-    // Don't allow submission if there's an overlap (unless it's a recurring exception)
-    if (hasOverlap && !isRecurring) {
-      setError('This time range overlaps with an existing exception. Please choose a different time.');
-      return;
-    }
-
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await onSubmit(data);
+      // Validate that end time is not before start time
+      const validation = validateTimeRange(data.startTime, data.endTime);
+      if (!validation.isValid) {
+        setError(validation.errorMessage || 'Invalid time range');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Validate that we have either a selected date or a day of week
+      if (!useRecurrence && !selectedDate) {
+        setError('Please pick a specific date');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      if (useRecurrence && selectedDay === undefined) {
+        setError('Please select a day of the week');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Create recurrence string if it's a recurring block
+      const recurrence = useRecurrence && selectedDay !== undefined 
+        ? createRecurrenceString([selectedDay as DayOfWeek]) 
+        : null;
+      
+      // Create full ISO timestamps
+      let start_time, end_time;
+      
+      if (!useRecurrence && selectedDate) {
+        const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        start_time = `${dateStr}T${data.startTime}:00`;
+        end_time = `${dateStr}T${data.endTime}:00`;
+      } else {
+        // Use current date for recurring blocks when no specific date is set
+        const today = format(new Date(), 'yyyy-MM-dd');
+        start_time = `${today}T${data.startTime}:00`;
+        end_time = `${today}T${data.endTime}:00`;
+      }
+
+      await onSubmit({
+        ...data,
+        recurrence,
+        start_time,
+        end_time
+      });
+      
       form.reset();
       onOpenChange(false);
     } catch (err) {
@@ -135,8 +165,8 @@ const ExceptionDialog = ({
   };
 
   // Format the date for display
-  const formattedDate = specificDate 
-    ? format(specificDate, 'EEEE, MMMM d, yyyy')
+  const formattedDate = selectedDate 
+    ? format(selectedDate, 'EEEE, MMMM d, yyyy')
     : null;
 
   return (
@@ -146,21 +176,72 @@ const ExceptionDialog = ({
           <DialogTitle>
             {formattedDate ? `Block Time on ${formattedDate}` : 'Add Time Off'}
           </DialogTitle>
-          {formattedDate && (
-            <DialogDescription>
-              Block time for this specific date or set it to repeat weekly.
-            </DialogDescription>
-          )}
+          <DialogDescription>
+            Block time for a specific date or set it to repeat weekly.
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            {hasOverlap && !isRecurring && (
+            {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  This time range overlaps with existing time off. Please choose a different time.
+                  {error}
                 </AlertDescription>
               </Alert>
+            )}
+            
+            {/* Block Weekly Checkbox */}
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="useRecurrence" 
+                checked={useRecurrence}
+                onCheckedChange={(checked) => setUseRecurrence(checked === true)}
+              />
+              <label 
+                htmlFor="useRecurrence" 
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+              >
+                Block Weekly
+              </label>
+            </div>
+            
+            {/* Day Selection for Recurring */}
+            {useRecurrence && (
+              <FormItem>
+                <FormLabel>Day of Week</FormLabel>
+                <Select
+                  value={selectedDay?.toString()}
+                  onValueChange={(value) => setSelectedDay(parseInt(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => (
+                      <SelectItem key={index} value={index.toString()}>
+                        {day}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+            
+            {/* Date Selection for Specific */}
+            {!useRecurrence && (
+              <div className="space-y-2">
+                <FormLabel>Date</FormLabel>
+                <div className="border rounded-md p-1">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    className="rounded-md border"
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                  />
+                </div>
+              </div>
             )}
             
             <FormField
@@ -231,35 +312,19 @@ const ExceptionDialog = ({
               )}
             />
             
-            {specificDate && (
-              <FormField
-                control={form.control}
-                name="isRecurring"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 mt-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Repeat weekly</FormLabel>
-                      <FormDescription>
-                        Block this time every week, not just this specific date
-                      </FormDescription>
-                    </div>
-                  </FormItem>
-                )}
-              />
-            )}
-            
-            {error && <div className="text-red-500 text-sm">{error}</div>}
-            <DialogFooter className="w-full">
+            <DialogFooter className="flex justify-center gap-4 mt-6 pt-2 sm:justify-center">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => onOpenChange(false)}
+                className="min-w-[100px]"
+              >
+                Cancel
+              </Button>
               <Button 
                 type="submit" 
-                disabled={isSubmitting || (hasOverlap && !isRecurring)} 
-                className="w-full"
+                disabled={isSubmitting}
+                className="min-w-[100px]"
               >
                 {isSubmitting ? (
                   <>
@@ -267,7 +332,7 @@ const ExceptionDialog = ({
                     Saving...
                   </>
                 ) : (
-                  formattedDate ? 'Block Time' : 'Save Time Off'
+                  'Save Time Off'
                 )}
               </Button>
             </DialogFooter>
